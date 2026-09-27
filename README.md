@@ -31,7 +31,7 @@ This repository is configured for **Vercel**, which is the recommended deploymen
 ### Deploy to Vercel
 
 1. Push the repository to GitHub.
-2. In Vercel, choose **Add New → Project** and import `wazzheed79/fpl-rival-spy`.
+2. In Vercel, choose **Add New → Project** and import this repository from GitHub.
 3. Keep the detected **Next.js** framework preset.
 4. Confirm the defaults:
    - **Install Command:** `npm ci`
