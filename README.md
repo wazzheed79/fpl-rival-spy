@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+This is a Next.js 16 app for finding Fantasy Premier League differential picks.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies and start the development server:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm ci
+npm run build
+npm start
+```
 
-## Learn More
+The project already includes the required Next.js production scripts:
 
-To learn more about Next.js, take a look at the following resources:
+- `npm run build`
+- `npm start`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+This repository is configured for **Vercel**, which is the recommended deployment target for this Next.js app.
 
-## Deploy on Vercel
+### Deploy to Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push the repository to GitHub.
+2. In Vercel, choose **Add New → Project** and import this repository from GitHub.
+3. Keep the detected **Next.js** framework preset.
+4. Confirm the defaults:
+   - **Install Command:** `npm ci`
+   - **Build Command:** `npm run build`
+   - **Output setting:** handled automatically by Vercel for Next.js
+5. Add any future environment variables in **Project Settings → Environment Variables**.
+6. Deploy.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+After the first deploy, Vercel will automatically create a new production deployment for pushes to your production branch and preview deployments for pull requests.
+
+### Environment Variables
+
+There are **no required environment variables at the moment**. The app currently reads public FPL data directly from the Fantasy Premier League API at runtime.
+
+If you add environment variables later:
+
+- keep them in local `.env*` files for development only
+- do **not** commit `.env*` files
+- add the same variable names in Vercel before building
