@@ -59,7 +59,6 @@ export async function GET() {
       }
     }
 
-    // Return the top 40 form differentials under 10% ownership so filtering has plenty of choices
     const topDifferentials = players
       .filter((p: any) => parseFloat(p.selected_by_percent) < 10.0 && p.minutes >= 180)
       .sort((a: any, b: any) => parseFloat(b.form) - parseFloat(a.form))
@@ -74,6 +73,8 @@ export async function GET() {
         ownership: `${p.selected_by_percent}%`,
         form: p.form,
         totalPoints: p.total_points,
+        xG: p.expected_goals || "0.00",
+        xA: p.expected_assists || "0.00",
         nextFixtures: teamNextFixtures[p.team] || [],
       }));
 

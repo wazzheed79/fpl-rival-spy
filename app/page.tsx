@@ -18,6 +18,8 @@ interface Player {
   ownership: string;
   form: string;
   totalPoints: number;
+  xG: string;
+  xA: string;
   nextFixtures: Fixture[];
 }
 
@@ -62,6 +64,7 @@ export default function Home() {
   // Filters
   const [selectedPos, setSelectedPos] = useState<string>("ALL");
   const [maxPrice, setMaxPrice] = useState<number>(15.0);
+  const [easyRunOnly, setEasyRunOnly] = useState<boolean>(false);
 
   // User & Rival IDs
   const [myTeamId, setMyTeamId] = useState("");
@@ -73,7 +76,6 @@ export default function Home() {
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Load differentials & saved team IDs on boot
   useEffect(() => {
     fetch("/api/differentials")
       .then((res) => res.json())
@@ -133,12 +135,17 @@ export default function Home() {
   const filteredPlayers = players.filter((p) => {
     const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
     const matchesPrice = p.costRaw <= maxPrice;
-    return matchesPos && matchesPrice;
+    const matchesEasy =
+      !easyRunOnly ||
+      (p.nextFixtures.length > 0 &&
+        p.nextFixtures.every((f) => f.difficulty <= 3));
+
+    return matchesPos && matchesPrice && matchesEasy;
   });
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-12">
-      <div className="max-w-5xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-8">
         
         <header>
           <div className="inline-block px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-3">
@@ -148,11 +155,11 @@ export default function Home() {
             Rival Spy & Differential Radar
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Top differentials filtered by position, budget, and mini-league rival ownership.
+            Top differentials with xG / xA underlying stats and easy fixture runs.
           </p>
         </header>
 
-        {/* Dual Manager Search Panel */}
+        {/* Manager Search */}
         <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl">
           <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div className="md:col-span-2 space-y-1">
@@ -207,9 +214,9 @@ export default function Home() {
           )}
         </div>
 
-        {/* Position & Price Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/40">
-          <div className="flex gap-2">
+        {/* Filter Toolbar */}
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/40">
+          <div className="flex flex-wrap gap-2">
             {["ALL", "DEF", "MID", "FWD", "GKP"].map((pos) => (
               <button
                 key={pos}
@@ -223,10 +230,23 @@ export default function Home() {
                 {pos}
               </button>
             ))}
+
+            <button
+              onClick={() => setEasyRunOnly(!easyRunOnly)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
+                easyRunOnly
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
+                  : "bg-slate-800/80 text-slate-400 border-transparent hover:text-white"
+              }`}
+            >
+              <span>🟢</span> Easy Run Only
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="text-xs text-slate-400">Max Price: <strong className="text-emerald-400">£{maxPrice.toFixed(1)}m</strong></label>
+            <label className="text-xs text-slate-400">
+              Max Price: <strong className="text-emerald-400 font-mono">£{maxPrice.toFixed(1)}m</strong>
+            </label>
             <input
               type="range"
               min="4.0"
@@ -239,7 +259,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Player Table */}
         {loading ? (
           <div className="p-8 text-center border border-slate-800 rounded-lg bg-slate-900/30">
             <p className="text-slate-400 animate-pulse">Running live scouting analysis...</p>
@@ -255,6 +275,8 @@ export default function Home() {
                   <th className="py-3.5 px-4">Cost</th>
                   <th className="py-3.5 px-4">Ownership</th>
                   <th className="py-3.5 px-4">Form</th>
+                  <th className="py-3.5 px-4">xG</th>
+                  <th className="py-3.5 px-4">xA</th>
                   <th className="py-3.5 px-4">Next 3 Fixtures</th>
                   <th className="py-3.5 px-4 text-right">Rival Spy Verdict</th>
                 </tr>
@@ -262,8 +284,8 @@ export default function Home() {
               <tbody className="divide-y divide-slate-800/60 text-sm">
                 {filteredPlayers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-500">
-                      No differentials match your selected position and price filters.
+                    <td colSpan={10} className="py-8 text-center text-slate-500">
+                      No differentials match your selected filters.
                     </td>
                   </tr>
                 ) : (
@@ -320,6 +342,8 @@ export default function Home() {
                         <td className="py-3.5 px-4 font-mono text-emerald-400 font-medium">£{p.price}m</td>
                         <td className="py-3.5 px-4 font-mono text-slate-300">{p.ownership}</td>
                         <td className="py-3.5 px-4 font-semibold text-amber-400">{p.form}</td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">{p.xG}</td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">{p.xA}</td>
                         
                         <td className="py-3.5 px-4">
                           <div className="flex gap-1.5">
