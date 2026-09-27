@@ -37,6 +37,14 @@ interface ManagerInfo {
   activeGameweek?: number;
 }
 
+interface LeagueRival {
+  entry: number;
+  player_name: string;
+  entry_name: string;
+  rank: number;
+  total: number;
+}
+
 type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownership";
 type SortDirection = "asc" | "desc";
 
@@ -88,6 +96,12 @@ export default function Home() {
   const [rivalTeamId, setRivalTeamId] = useState("");
   const [rivalManager, setRivalManager] = useState<ManagerInfo | null>(null);
 
+  // Mini-League
+  const [leagueId, setLeagueId] = useState("");
+  const [leagueName, setLeagueName] = useState("");
+  const [leagueRivals, setLeagueRivals] = useState<LeagueRival[]>([]);
+  const [loadingLeague, setLoadingLeague] = useState(false);
+
   const [searching, setSearching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -102,6 +116,7 @@ export default function Home() {
 
     const savedMyId = localStorage.getItem("fpl_my_team_id");
     const savedRivalId = localStorage.getItem("fpl_rival_team_id");
+    const savedLeagueId = localStorage.getItem("fpl_league_id");
 
     if (savedMyId) {
       setMyTeamId(savedMyId);
@@ -110,7 +125,28 @@ export default function Home() {
     if (savedRivalId) {
       setRivalTeamId(savedRivalId);
     }
+    if (savedLeagueId) {
+      setLeagueId(savedLeagueId);
+      fetchLeague(savedLeagueId);
+    }
   }, []);
+
+  const fetchLeague = async (id: string) => {
+    if (!id.trim()) return;
+    setLoadingLeague(true);
+    try {
+      const res = await fetch(`/api/league?leagueId=${id.trim()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "League not found");
+      setLeagueName(data.leagueName);
+      setLeagueRivals(data.rivals || []);
+      localStorage.setItem("fpl_league_id", id.trim());
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to load league");
+    } finally {
+      setLoadingLeague(false);
+    }
+  };
 
   const lookupManager = async (myId: string, rivalId: string) => {
     if (!myId.trim()) return;
@@ -144,6 +180,11 @@ export default function Home() {
   const handleCompare = (e: React.FormEvent) => {
     e.preventDefault();
     lookupManager(myTeamId, rivalTeamId);
+  };
+
+  const handleSelectRival = (selectedId: string) => {
+    setRivalTeamId(selectedId);
+    lookupManager(myTeamId, selectedId);
   };
 
   const handleSort = (field: SortField) => {
@@ -228,6 +269,45 @@ export default function Home() {
           </p>
         </header>
 
+        {/* Mini-League Sync Bar */}
+        <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col md:flex-row gap-3 items-center justify-between">
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <span className="text-xs font-semibold text-slate-300 whitespace-nowrap">🏆 Mini-League ID:</span>
+            <input
+              type="text"
+              placeholder="e.g. 56789"
+              value={leagueId}
+              onChange={(e) => setLeagueId(e.target.value)}
+              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-amber-400 w-32"
+            />
+            <button
+              onClick={() => fetchLeague(leagueId)}
+              disabled={loadingLeague}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all disabled:opacity-50"
+            >
+              {loadingLeague ? "Syncing..." : "Sync League"}
+            </button>
+          </div>
+
+          {leagueRivals.length > 0 && (
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <span className="text-xs text-slate-400">Pick Rival ({leagueName}):</span>
+              <select
+                value={rivalTeamId}
+                onChange={(e) => handleSelectRival(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-rose-300 font-semibold focus:outline-none focus:border-rose-500"
+              >
+                <option value="">-- Choose Rival from Standings --</option>
+                {leagueRivals.map((r) => (
+                  <option key={r.entry} value={r.entry}>
+                    #{r.rank} {r.player_name} ({r.entry_name}) - {r.total} pts
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
         {/* Manager Input */}
         <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl space-y-4">
           <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
@@ -243,7 +323,7 @@ export default function Home() {
             </div>
 
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Rival's Team ID (Optional)</label>
+              <label className="text-xs font-semibold text-slate-300">Rival's Team ID (Or use dropdown above)</label>
               <input
                 type="text"
                 placeholder="e.g. 987654"
