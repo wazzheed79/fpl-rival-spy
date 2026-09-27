@@ -26,7 +26,7 @@ The project already includes the required Next.js production scripts:
 
 ## Deployment
 
-This repository is configured for **Vercel**, which is the recommended deployment target for this app because it uses Next.js route handlers under `app/api`.
+This repository is configured for **Vercel**, which is the recommended deployment target for this Next.js app.
 
 ### Deploy to Vercel
 
