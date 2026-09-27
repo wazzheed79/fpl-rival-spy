@@ -29,13 +29,46 @@ interface CaptainInfo {
   name: string;
 }
 
+interface PlayerPick {
+  id: number;
+  name: string;
+  position: string;
+  elementType: number;
+  rawPoints: number;
+  points: number;
+  multiplier: number;
+  isCaptain: boolean;
+  isViceCaptain: boolean;
+}
+
+interface ChipsRemaining {
+  wildcard: number;
+  freehit: number;
+  bboost: number;
+  tripleCaptain: number;
+}
+
+interface ChipUsage {
+  name: string;
+  event: number;
+  time: string;
+}
+
 interface ManagerInfo {
   teamName: string;
   managerName: string;
   ownedPlayerIds: number[];
+  startingXI: PlayerPick[];
+  bench: PlayerPick[];
+  formation: string;
+  totalStartingPoints: number;
   captain?: CaptainInfo | null;
   viceCaptain?: CaptainInfo | null;
   activeGameweek?: number;
+  bank?: number;
+  value?: number;
+  chipsRemaining?: ChipsRemaining;
+  chipsUsed?: ChipUsage[];
 }
 
 interface LeagueRival {
@@ -75,6 +108,158 @@ function FDRBadge({ fixture }: { fixture: Fixture }) {
     >
       {fixture.opponent} ({fixture.isHome ? "H" : "A"})
     </span>
+  );
+}
+
+function PitchView({
+  manager,
+  otherManager,
+  title,
+  themeColor,
+}: {
+  manager: ManagerInfo;
+  otherManager: ManagerInfo | null;
+  title: string;
+  themeColor: "emerald" | "rose";
+}) {
+  const otherStartingIds = useMemo(() => {
+    if (!otherManager || !otherManager.startingXI) return new Set<number>();
+    return new Set(otherManager.startingXI.map((p) => p.id));
+  }, [otherManager]);
+
+  const startingXI = manager.startingXI || [];
+  const bench = manager.bench || [];
+
+  const fwds = startingXI.filter((p) => p.elementType === 4);
+  const mids = startingXI.filter((p) => p.elementType === 3);
+  const defs = startingXI.filter((p) => p.elementType === 2);
+  const gkps = startingXI.filter((p) => p.elementType === 1);
+
+  const renderPlayerCard = (p: PlayerPick) => {
+    const isShared = otherStartingIds.has(p.id);
+    const isMine = themeColor === "emerald";
+
+    let badgeClass = "bg-slate-900/90 border-slate-700 text-slate-200";
+    let statusLabel = "";
+    let statusEmoji = "";
+
+    if (otherManager) {
+      if (isShared) {
+        badgeClass = "bg-emerald-950/90 border-emerald-500/70 text-emerald-200 ring-1 ring-emerald-500/40";
+        statusLabel = "Shared Shield";
+        statusEmoji = "🟢";
+      } else if (isMine) {
+        badgeClass = "bg-sky-950/90 border-sky-500/70 text-sky-200 ring-1 ring-sky-500/40";
+        statusLabel = "Your Weapon";
+        statusEmoji = "🔵";
+      } else {
+        badgeClass = "bg-rose-950/90 border-rose-500/70 text-rose-200 ring-1 ring-rose-500/40";
+        statusLabel = "Rival Danger";
+        statusEmoji = "🔴";
+      }
+    }
+
+    return (
+      <div
+        key={p.id}
+        title={`${p.name} (${p.position}) - ${p.points} pts ${statusLabel ? `[${statusLabel}]` : ""}`}
+        className={`flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl border shadow-md backdrop-blur-sm transition-all hover:scale-105 select-none w-16 sm:w-20 md:w-24 ${badgeClass}`}
+      >
+        <div className="flex items-center gap-1 w-full justify-between">
+          <span className="text-[9px] sm:text-[10px] font-mono opacity-80">{p.position}</span>
+          {statusEmoji && <span className="text-[10px]" title={statusLabel}>{statusEmoji}</span>}
+        </div>
+        <span className="text-xs sm:text-sm font-black truncate max-w-full text-white text-center my-0.5">
+          {p.name}
+        </span>
+        <div className="flex items-center justify-between w-full pt-1 border-t border-white/10 text-[10px] sm:text-xs">
+          <span className="font-mono font-bold text-amber-300">{p.points} pts</span>
+          {p.isCaptain && (
+            <span className="px-1 py-0.2 bg-amber-500 text-slate-950 font-black text-[9px] rounded">
+              {p.multiplier === 3 ? "TC" : "C"}
+            </span>
+          )}
+          {p.isViceCaptain && !p.isCaptain && (
+            <span className="px-1 py-0.2 bg-slate-700 text-slate-300 font-bold text-[9px] rounded">
+              VC
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const borderColor = themeColor === "emerald" ? "border-emerald-500/30" : "border-rose-500/30";
+  const headerBg = themeColor === "emerald" ? "bg-emerald-950/40 text-emerald-300" : "bg-rose-950/40 text-rose-300";
+
+  return (
+    <div className={`rounded-2xl border ${borderColor} bg-slate-900/60 p-4 space-y-4 shadow-xl flex flex-col justify-between`}>
+      {/* Pitch Header */}
+      <div className={`flex items-center justify-between p-3 rounded-xl border ${borderColor} ${headerBg}`}>
+        <div>
+          <span className="text-[10px] uppercase font-mono tracking-wider opacity-80 block">{title}</span>
+          <h4 className="font-black text-sm sm:text-base text-white">{manager.teamName}</h4>
+          <span className="text-xs opacity-90">{manager.managerName}</span>
+        </div>
+        <div className="text-right">
+          <span className="text-[10px] uppercase font-mono tracking-wider opacity-80 block">Starting XI</span>
+          <div className="text-base sm:text-lg font-black font-mono text-amber-400">
+            {manager.totalStartingPoints} pts
+          </div>
+          <span className="text-[10px] font-mono opacity-80">Formation: {manager.formation}</span>
+        </div>
+      </div>
+
+      {/* Visual Football Pitch */}
+      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-emerald-900 via-emerald-950 to-emerald-900 border border-emerald-700/40 p-4 sm:p-6 shadow-inner min-h-[380px] flex flex-col justify-between">
+        {/* Pitch markings background */}
+        <div className="absolute inset-0 pointer-events-none opacity-20 flex flex-col justify-between p-4">
+          <div className="w-full h-1/2 border-b border-dashed border-emerald-300/40 relative">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full border border-emerald-300/40"></div>
+          </div>
+          <div className="w-full h-1/2"></div>
+        </div>
+
+        {/* Forwards */}
+        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
+          {fwds.map(renderPlayerCard)}
+        </div>
+
+        {/* Midfielders */}
+        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
+          {mids.map(renderPlayerCard)}
+        </div>
+
+        {/* Defenders */}
+        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
+          {defs.map(renderPlayerCard)}
+        </div>
+
+        {/* Goalkeeper */}
+        <div className="relative z-10 flex justify-center">
+          {gkps.map(renderPlayerCard)}
+        </div>
+      </div>
+
+      {/* Bench Row */}
+      <div className="space-y-1.5 pt-2 border-t border-slate-800">
+        <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block">Substitutes Bench</span>
+        <div className="grid grid-cols-4 gap-2">
+          {bench.map((p) => (
+            <div
+              key={p.id}
+              className="bg-slate-950/80 border border-slate-800/80 rounded-lg p-2 text-center flex flex-col justify-between"
+            >
+              <div className="flex justify-between text-[9px] font-mono text-slate-400">
+                <span>{p.position}</span>
+                <span className="text-amber-400 font-bold">{p.points} pts</span>
+              </div>
+              <span className="text-xs font-semibold text-slate-200 truncate my-0.5">{p.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -254,6 +439,25 @@ export default function Home() {
     ).length;
   }, [filteredPlayers, myManager, rivalManager]);
 
+  // Pitch Duel Summary Stats
+  const pitchDuelStats = useMemo(() => {
+    if (!myManager || !rivalManager || !myManager.startingXI || !rivalManager.startingXI) {
+      return { sharedCount: 0, differentialCount: 0, pointsSwing: 0 };
+    }
+    const myIds = new Set(myManager.startingXI.map((p) => p.id));
+    const rivalIds = new Set(rivalManager.startingXI.map((p) => p.id));
+
+    let sharedCount = 0;
+    myManager.startingXI.forEach((p) => {
+      if (rivalIds.has(p.id)) sharedCount++;
+    });
+
+    const differentialCount = (myManager.startingXI.length - sharedCount) + (rivalManager.startingXI.length - sharedCount);
+    const pointsSwing = myManager.totalStartingPoints - rivalManager.totalStartingPoints;
+
+    return { sharedCount, differentialCount, pointsSwing };
+  }, [myManager, rivalManager]);
+
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field) return <span className="text-slate-600 ml-1">↕</span>;
     return sortDir === "asc" ? (
@@ -431,6 +635,211 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* Rival Recon Card */}
+        <div className="p-5 rounded-2xl border border-rose-500/30 bg-gradient-to-br from-slate-900 via-slate-900/90 to-rose-950/20 shadow-2xl relative overflow-hidden space-y-4">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 text-lg shadow-inner">
+                🕵️‍♂️
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+                    Rival Recon Card
+                  </h3>
+                  <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold rounded-full border border-rose-500/30">
+                    INTEL
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  {rivalManager
+                    ? `Tracking ${rivalManager.teamName} (${rivalManager.managerName})`
+                    : "No rival loaded. Enter a rival ID or select from mini-league above."}
+                </p>
+              </div>
+            </div>
+
+            {rivalManager && rivalTeamId && (
+              <div className="text-right font-mono text-xs text-slate-400 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
+                Team ID: <strong className="text-rose-400">{rivalTeamId}</strong>
+              </div>
+            )}
+          </div>
+
+          {rivalManager ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+              {/* Financials & Value */}
+              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3 flex flex-col justify-between">
+                <span className="text-[11px] uppercase tracking-wider font-mono text-slate-400">Squad Financials</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block font-mono">Bank Balance</span>
+                    <strong className="text-base sm:text-lg font-black text-emerald-400 font-mono">
+                      £{rivalManager.bank?.toFixed(1)}m
+                    </strong>
+                  </div>
+                  <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
+                    <span className="text-[10px] text-slate-400 block font-mono">Team Value</span>
+                    <strong className="text-base sm:text-lg font-black text-indigo-400 font-mono">
+                      £{rivalManager.value?.toFixed(1)}m
+                    </strong>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-500 italic">
+                  Active GW{rivalManager.activeGameweek || 1} deadline stats
+                </div>
+              </div>
+
+              {/* Remaining Chips */}
+              <div className="md:col-span-2 bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] uppercase tracking-wider font-mono text-slate-400">Remaining Chips Arsenal</span>
+                  <span className="text-[11px] text-slate-400">
+                    Season Quota: <strong className="text-white">2 per chip</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {[
+                    {
+                      label: "Wildcard",
+                      code: "WC",
+                      icon: "🔄",
+                      left: rivalManager.chipsRemaining?.wildcard ?? 2,
+                    },
+                    {
+                      label: "Free Hit",
+                      code: "FH",
+                      icon: "⚡",
+                      left: rivalManager.chipsRemaining?.freehit ?? 2,
+                    },
+                    {
+                      label: "Triple Captain",
+                      code: "TC",
+                      icon: "⭐",
+                      left: rivalManager.chipsRemaining?.tripleCaptain ?? 2,
+                    },
+                    {
+                      label: "Bench Boost",
+                      code: "BB",
+                      icon: "🚀",
+                      left: rivalManager.chipsRemaining?.bboost ?? 2,
+                    },
+                  ].map((chip) => {
+                    const isAvailable = chip.left > 0;
+                    return (
+                      <div
+                        key={chip.code}
+                        className={`p-3 rounded-xl border flex flex-col items-center text-center transition-all ${
+                          isAvailable
+                            ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
+                            : "bg-slate-900/50 border-slate-800 text-slate-500"
+                        }`}
+                      >
+                        <span className="text-base mb-1">{chip.icon}</span>
+                        <span className="text-[11px] font-bold text-white">{chip.label}</span>
+                        <span
+                          className={`text-xs font-mono font-black mt-1 px-2 py-0.5 rounded-full ${
+                            isAvailable
+                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                              : "bg-slate-800 text-slate-400"
+                          }`}
+                        >
+                          {chip.left} left
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {rivalManager.chipsUsed && rivalManager.chipsUsed.length > 0 && (
+                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-2 items-center text-xs">
+                    <span className="text-slate-400 text-[11px]">History Played:</span>
+                    {rivalManager.chipsUsed.map((c, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[11px]"
+                      >
+                        {c.name.toUpperCase()} (GW{c.event})
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center bg-slate-950/40 rounded-xl border border-slate-800/80 space-y-2">
+              <p className="text-slate-400 text-sm">
+                🔍 No rival team selected yet.
+              </p>
+              <p className="text-slate-500 text-xs">
+                Enter a rival Team ID above or sync a mini-league to view their chip inventory, bank, and team value.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Head-to-Head Visual Pitch Duel Section */}
+        {myManager && rivalManager && (
+          <div className="space-y-4">
+            {/* Top Banner Summary */}
+            <div className="p-4 rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg">
+                  ⚔️
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white tracking-tight">
+                    Head-to-Head Visual Pitch Duel
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Direct Starting XI clash comparison & live gameweek swing analysis.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Shared Shields</span>
+                  <strong className="text-sm font-black text-emerald-400 font-mono">{pitchDuelStats.sharedCount} / 11</strong>
+                </div>
+                <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Active Battles</span>
+                  <strong className="text-sm font-black text-sky-400 font-mono">{pitchDuelStats.differentialCount}</strong>
+                </div>
+                <div className="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800 text-center">
+                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Net Points Swing</span>
+                  <strong
+                    className={`text-sm md:text-base font-black font-mono ${
+                      pitchDuelStats.pointsSwing >= 0 ? "text-emerald-400" : "text-rose-400"
+                    }`}
+                  >
+                    {pitchDuelStats.pointsSwing > 0 ? `+${pitchDuelStats.pointsSwing}` : pitchDuelStats.pointsSwing} pts
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Side-by-Side Visual Pitches */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <PitchView
+                manager={myManager}
+                otherManager={rivalManager}
+                title="Your Squad"
+                themeColor="emerald"
+              />
+              <PitchView
+                manager={rivalManager}
+                otherManager={myManager}
+                title="Rival Squad"
+                themeColor="rose"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Filter Toolbar with Position, Easy Run, Max Price & Max Ownership */}
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-4">
