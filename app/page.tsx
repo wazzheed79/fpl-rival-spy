@@ -23,10 +23,18 @@ interface Player {
   nextFixtures: Fixture[];
 }
 
+interface CaptainInfo {
+  id: number;
+  name: string;
+}
+
 interface ManagerInfo {
   teamName: string;
   managerName: string;
   ownedPlayerIds: number[];
+  captain?: CaptainInfo | null;
+  viceCaptain?: CaptainInfo | null;
+  activeGameweek?: number;
 }
 
 type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownership";
@@ -147,7 +155,6 @@ export default function Home() {
     }
   };
 
-  // Filter and sort logic
   const filteredPlayers = players
     .filter((p) => {
       const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
@@ -200,6 +207,11 @@ export default function Home() {
     );
   };
 
+  const isCaptainShielded =
+    myManager?.captain &&
+    rivalManager?.captain &&
+    myManager.captain.id === rivalManager.captain.id;
+
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-12">
       <div className="max-w-6xl mx-auto space-y-8">
@@ -212,12 +224,12 @@ export default function Home() {
             Rival Spy & Differential Radar
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Top differentials with xG / xA underlying stats and easy fixture runs.
+            Differential targets, live captaincy clashing, and mini-league tracking.
           </p>
         </header>
 
-        {/* Manager Search */}
-        <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl">
+        {/* Manager Input */}
+        <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl space-y-4">
           <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div className="md:col-span-2 space-y-1">
               <label className="text-xs font-semibold text-slate-300">Your FPL Team ID</label>
@@ -252,18 +264,54 @@ export default function Home() {
             </div>
           </form>
 
+          {/* Captaincy Clash Indicator */}
+          {myManager && rivalManager && myManager.captain && rivalManager.captain && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-center justify-between ${
+                isCaptainShielded
+                  ? "bg-slate-900 border-slate-700 text-slate-300"
+                  : "bg-amber-950/40 border-amber-500/50 text-amber-200"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">{isCaptainShielded ? "🛡️" : "⚔️"}</span>
+                <div>
+                  <strong className="block font-semibold">
+                    {isCaptainShielded ? "Armband Shielded" : "Captaincy Clash Active"}
+                  </strong>
+                  <span className="text-slate-400">
+                    {isCaptainShielded
+                      ? `Both managers backed ${myManager.captain.name} (C). Net captaincy swing: 0 pts.`
+                      : `You backed ${myManager.captain.name} (C) vs Rival's ${rivalManager.captain.name} (C). High rank swing gameweek!`}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Manager Meta Details */}
           {(myManager || rivalManager || errorMsg) && (
-            <div className="mt-4 pt-4 border-t border-slate-800 flex flex-wrap gap-4 text-xs">
+            <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-4 text-xs">
               {myManager && (
-                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400">You: </span>
-                  <strong className="text-emerald-400">{myManager.teamName}</strong> ({myManager.managerName})
+                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
+                  <span className="text-slate-400">You:</span>
+                  <strong className="text-emerald-400">{myManager.teamName}</strong>
+                  {myManager.captain && (
+                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded text-[11px] font-mono">
+                      (C) {myManager.captain.name}
+                    </span>
+                  )}
                 </div>
               )}
               {rivalManager && (
-                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-                  <span className="text-slate-400">Rival: </span>
-                  <strong className="text-rose-400">{rivalManager.teamName}</strong> ({rivalManager.managerName})
+                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
+                  <span className="text-slate-400">Rival:</span>
+                  <strong className="text-rose-400">{rivalManager.teamName}</strong>
+                  {rivalManager.captain && (
+                    <span className="bg-rose-950 text-rose-300 border border-rose-700 px-1.5 py-0.5 rounded text-[11px] font-mono">
+                      (C) {rivalManager.captain.name}
+                    </span>
+                  )}
                 </div>
               )}
               {errorMsg && <p className="text-rose-400 font-semibold self-center">{errorMsg}</p>}
