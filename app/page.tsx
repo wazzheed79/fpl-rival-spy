@@ -44,6 +44,7 @@ interface LeagueRival {
   entry_name: string;
   rank: number;
   total: number;
+  ownedPlayerIds?: number[];
 }
 
 type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownershipRaw";
@@ -563,31 +564,46 @@ export default function Home() {
                   filteredPlayers.map((p) => {
                     const iOwn = myManager?.ownedPlayerIds.includes(p.id);
                     const rivalOwns = rivalManager?.ownedPlayerIds.includes(p.id);
+                    const rivalOwnersCount = leagueRivals.filter(
+                      (r) => r.ownedPlayerIds && r.ownedPlayerIds.includes(p.id)
+                    ).length;
 
                     let badge = <span className="text-xs text-slate-600">—</span>;
 
-                    if (myManager) {
-                      if (iOwn) {
+                    if (myManager || rivalManager || leagueRivals.length > 0) {
+                      if (myManager && iOwn) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
                             In Your Squad
                           </span>
                         );
-                      } else if (rivalOwns) {
+                      } else if (rivalManager && rivalOwns) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 whitespace-nowrap">
-                            ⚠️ Rival Owns
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 whitespace-nowrap animate-pulse">
+                            ⚠️ Rival Shield Required
+                          </span>
+                        );
+                      } else if (rivalOwnersCount > 1) {
+                        badge = (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse">
+                            🛡️ Must Shield
+                          </span>
+                        );
+                      } else if (!rivalOwns && rivalOwnersCount === 0 && parseFloat(p.form) >= 5.0) {
+                        badge = (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/40 whitespace-nowrap">
+                            🔥 True Weapon
                           </span>
                         );
                       } else if (rivalManager && !rivalOwns && !iOwn) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap">
                             🔥 Leapfrog Target
                           </span>
                         );
                       } else {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
                             Scout Target
                           </span>
                         );
