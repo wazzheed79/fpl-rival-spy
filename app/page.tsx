@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 interface Fixture {
   opponent: string;
@@ -52,13 +52,13 @@ function FDRBadge({ fixture }: { fixture: Fixture }) {
   const getFDRStyle = (diff: number) => {
     switch (diff) {
       case 2:
-        return "bg-emerald-950 text-emerald-300 border-emerald-600/60";
+        return "bg-emerald-950/80 text-emerald-300 border-emerald-600/50";
       case 3:
         return "bg-slate-800 text-slate-300 border-slate-700";
       case 4:
-        return "bg-rose-950 text-rose-300 border-rose-600/60";
+        return "bg-rose-950/80 text-rose-300 border-rose-600/50";
       case 5:
-        return "bg-red-950 text-red-200 border-red-500 font-extrabold";
+        return "bg-red-950 text-red-200 border-red-500 font-black";
       default:
         return "bg-slate-800 text-slate-300 border-slate-700";
     }
@@ -67,7 +67,7 @@ function FDRBadge({ fixture }: { fixture: Fixture }) {
   return (
     <span
       title={`Difficulty: ${fixture.difficulty}/5`}
-      className={`inline-block px-1.5 py-0.5 text-[11px] font-mono rounded border ${getFDRStyle(
+      className={`inline-block px-1.5 py-0.5 text-[10px] md:text-[11px] font-mono rounded border whitespace-nowrap ${getFDRStyle(
         fixture.difficulty
       )}`}
     >
@@ -196,48 +196,59 @@ export default function Home() {
     }
   };
 
-  const filteredPlayers = players
-    .filter((p) => {
-      const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
-      const matchesPrice = p.costRaw <= maxPrice;
-      const matchesEasy =
-        !easyRunOnly ||
-        (p.nextFixtures.length > 0 &&
-          p.nextFixtures.every((f) => f.difficulty <= 3));
+  const filteredPlayers = useMemo(() => {
+    return players
+      .filter((p) => {
+        const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
+        const matchesPrice = p.costRaw <= maxPrice;
+        const matchesEasy =
+          !easyRunOnly ||
+          (p.nextFixtures.length > 0 &&
+            p.nextFixtures.every((f) => f.difficulty <= 3));
 
-      return matchesPos && matchesPrice && matchesEasy;
-    })
-    .sort((a, b) => {
-      let valA: number | string = 0;
-      let valB: number | string = 0;
+        return matchesPos && matchesPrice && matchesEasy;
+      })
+      .sort((a, b) => {
+        let valA: number | string = 0;
+        let valB: number | string = 0;
 
-      if (sortField === "name") {
-        valA = a.name.toLowerCase();
-        valB = b.name.toLowerCase();
+        if (sortField === "name") {
+          valA = a.name.toLowerCase();
+          valB = b.name.toLowerCase();
+          return sortDir === "asc"
+            ? (valA as string).localeCompare(valB as string)
+            : (valB as string).localeCompare(valA as string);
+        }
+
+        if (sortField === "costRaw") {
+          valA = a.costRaw;
+          valB = b.costRaw;
+        } else if (sortField === "form") {
+          valA = parseFloat(a.form) || 0;
+          valB = parseFloat(b.form) || 0;
+        } else if (sortField === "xG") {
+          valA = parseFloat(a.xG) || 0;
+          valB = parseFloat(b.xG) || 0;
+        } else if (sortField === "xA") {
+          valA = parseFloat(a.xA) || 0;
+          valB = parseFloat(b.xA) || 0;
+        } else if (sortField === "ownership") {
+          valA = parseFloat(a.ownership) || 0;
+          valB = parseFloat(b.ownership) || 0;
+        }
+
         return sortDir === "asc"
-          ? (valA as string).localeCompare(valB as string)
-          : (valB as string).localeCompare(valA as string);
-      }
+          ? (valA as number) - (valB as number)
+          : (valB as number) - (valA as number);
+      });
+  }, [players, selectedPos, maxPrice, easyRunOnly, sortField, sortDir]);
 
-      if (sortField === "costRaw") {
-        valA = a.costRaw;
-        valB = b.costRaw;
-      } else if (sortField === "form") {
-        valA = parseFloat(a.form) || 0;
-        valB = parseFloat(b.form) || 0;
-      } else if (sortField === "xG") {
-        valA = parseFloat(a.xG) || 0;
-        valB = parseFloat(b.xG) || 0;
-      } else if (sortField === "xA") {
-        valA = parseFloat(a.xA) || 0;
-        valB = parseFloat(b.xA) || 0;
-      } else if (sortField === "ownership") {
-        valA = parseFloat(a.ownership) || 0;
-        valB = parseFloat(b.ownership) || 0;
-      }
-
-      return sortDir === "asc" ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
-    });
+  const leapfrogCount = useMemo(() => {
+    if (!rivalManager || !myManager) return 0;
+    return filteredPlayers.filter(
+      (p) => !myManager.ownedPlayerIds.includes(p.id) && !rivalManager.ownedPlayerIds.includes(p.id)
+    ).length;
+  }, [filteredPlayers, myManager, rivalManager]);
 
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field) return <span className="text-slate-600 ml-1">↕</span>;
@@ -254,53 +265,71 @@ export default function Home() {
     myManager.captain.id === rivalManager.captain.id;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-6 md:p-12">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 md:p-12 font-sans antialiased">
+      <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
         
-        <header>
-          <div className="inline-block px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-3">
-            FPL Scout Engine
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800/80 pb-6">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+              Live FPL Sync
+            </div>
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-white">
+              Rival Spy & Differential Radar
+            </h1>
+            <p className="text-slate-400 text-xs sm:text-sm mt-1">
+              Scout differential transfers and track mini-league rivals before deadline.
+            </p>
           </div>
-          <h1 className="text-3xl font-black tracking-tight sm:text-4xl text-white">
-            Rival Spy & Differential Radar
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            Differential targets, live captaincy clashing, and mini-league tracking.
-          </p>
+
+          {/* Quick Metrics Bar */}
+          <div className="flex gap-2">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center min-w-[76px]">
+              <span className="text-[10px] text-slate-400 block uppercase font-mono tracking-wider">Targets</span>
+              <strong className="text-sm md:text-base font-black text-white">{filteredPlayers.length}</strong>
+            </div>
+            {rivalManager && (
+              <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl px-3.5 py-2 text-center min-w-[76px]">
+                <span className="text-[10px] text-amber-300/80 block uppercase font-mono tracking-wider">Leapfrog</span>
+                <strong className="text-sm md:text-base font-black text-amber-400">{leapfrogCount}</strong>
+              </div>
+            )}
+          </div>
         </header>
 
         {/* Mini-League Sync Bar */}
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col md:flex-row gap-3 items-center justify-between">
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <span className="text-xs font-semibold text-slate-300 whitespace-nowrap">🏆 Mini-League ID:</span>
+        <div className="p-4 rounded-2xl border border-slate-800/90 bg-slate-900/50 backdrop-blur shadow-lg flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-300 whitespace-nowrap">🏆 Mini-League ID:</span>
             <input
               type="text"
               placeholder="e.g. 56789"
               value={leagueId}
               onChange={(e) => setLeagueId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-amber-400 w-32"
+              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs font-mono text-white focus:outline-none focus:border-amber-400 w-28 md:w-36"
             />
             <button
               onClick={() => fetchLeague(leagueId)}
               disabled={loadingLeague}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all disabled:opacity-50"
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all disabled:opacity-50 active:scale-95 shadow-sm"
             >
               {loadingLeague ? "Syncing..." : "Sync League"}
             </button>
           </div>
 
           {leagueRivals.length > 0 && (
-            <div className="flex items-center gap-2 w-full md:w-auto">
-              <span className="text-xs text-slate-400">Pick Rival ({leagueName}):</span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <span className="text-xs text-slate-400">Rival ({leagueName}):</span>
               <select
                 value={rivalTeamId}
                 onChange={(e) => handleSelectRival(e.target.value)}
-                className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-rose-300 font-semibold focus:outline-none focus:border-rose-500"
+                className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-rose-300 font-semibold focus:outline-none focus:border-rose-500 cursor-pointer"
               >
-                <option value="">-- Choose Rival from Standings --</option>
+                <option value="">-- Pick Mini-League Rival --</option>
                 {leagueRivals.map((r) => (
                   <option key={r.entry} value={r.entry}>
-                    #{r.rank} {r.player_name} ({r.entry_name}) - {r.total} pts
+                    #{r.rank} {r.player_name} ({r.entry_name}) • {r.total} pts
                   </option>
                 ))}
               </select>
@@ -309,8 +338,8 @@ export default function Home() {
         </div>
 
         {/* Manager Input */}
-        <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl space-y-4">
-          <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+        <div className="p-4 sm:p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl space-y-4">
+          <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-3 md:gap-4 items-end">
             <div className="md:col-span-2 space-y-1">
               <label className="text-xs font-semibold text-slate-300">Your FPL Team ID</label>
               <input
@@ -323,7 +352,7 @@ export default function Home() {
             </div>
 
             <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Rival's Team ID (Or use dropdown above)</label>
+              <label className="text-xs font-semibold text-slate-300">Rival's Team ID (Or select above)</label>
               <input
                 type="text"
                 placeholder="e.g. 987654"
@@ -337,7 +366,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={searching}
-                className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition-all disabled:opacity-50"
+                className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition-all disabled:opacity-50 active:scale-95 shadow-md shadow-emerald-500/20"
               >
                 {searching ? "Spying..." : "Compare"}
               </button>
@@ -347,22 +376,22 @@ export default function Home() {
           {/* Captaincy Clash Indicator */}
           {myManager && rivalManager && myManager.captain && rivalManager.captain && (
             <div
-              className={`p-3.5 rounded-xl border text-xs flex items-center justify-between ${
+              className={`p-3.5 rounded-xl border text-xs flex items-center justify-between transition-all ${
                 isCaptainShielded
                   ? "bg-slate-900 border-slate-700 text-slate-300"
-                  : "bg-amber-950/40 border-amber-500/50 text-amber-200"
+                  : "bg-amber-950/30 border-amber-500/40 text-amber-200"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="text-base">{isCaptainShielded ? "🛡️" : "⚔️"}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{isCaptainShielded ? "🛡️" : "⚔️"}</span>
                 <div>
-                  <strong className="block font-semibold">
+                  <strong className="block font-bold">
                     {isCaptainShielded ? "Armband Shielded" : "Captaincy Clash Active"}
                   </strong>
                   <span className="text-slate-400">
                     {isCaptainShielded
-                      ? `Both managers backed ${myManager.captain.name} (C). Net captaincy swing: 0 pts.`
-                      : `You backed ${myManager.captain.name} (C) vs Rival's ${rivalManager.captain.name} (C). High rank swing gameweek!`}
+                      ? `Both managers picked ${myManager.captain.name} (C). Net swing: 0 pts.`
+                      : `You backed ${myManager.captain.name} (C) vs Rival's ${rivalManager.captain.name} (C). Rank swing gameweek!`}
                   </span>
                 </div>
               </div>
@@ -371,13 +400,13 @@ export default function Home() {
 
           {/* Manager Meta Details */}
           {(myManager || rivalManager || errorMsg) && (
-            <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-4 text-xs">
+            <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-3 text-xs">
               {myManager && (
                 <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
                   <span className="text-slate-400">You:</span>
                   <strong className="text-emerald-400">{myManager.teamName}</strong>
                   {myManager.captain && (
-                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700 px-1.5 py-0.5 rounded text-[11px] font-mono">
+                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
                       (C) {myManager.captain.name}
                     </span>
                   )}
@@ -388,7 +417,7 @@ export default function Home() {
                   <span className="text-slate-400">Rival:</span>
                   <strong className="text-rose-400">{rivalManager.teamName}</strong>
                   {rivalManager.captain && (
-                    <span className="bg-rose-950 text-rose-300 border border-rose-700 px-1.5 py-0.5 rounded text-[11px] font-mono">
+                    <span className="bg-rose-950 text-rose-300 border border-rose-700/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
                       (C) {rivalManager.captain.name}
                     </span>
                   )}
@@ -406,9 +435,9 @@ export default function Home() {
               <button
                 key={pos}
                 onClick={() => setSelectedPos(pos)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
                   selectedPos === pos
-                    ? "bg-emerald-500 text-slate-950"
+                    ? "bg-emerald-500 text-slate-950 shadow-sm"
                     : "bg-slate-800/80 text-slate-400 hover:text-white"
                 }`}
               >
@@ -418,7 +447,7 @@ export default function Home() {
 
             <button
               onClick={() => setEasyRunOnly(!easyRunOnly)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${
                 easyRunOnly
                   ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
                   : "bg-slate-800/80 text-slate-400 border-transparent hover:text-white"
@@ -428,7 +457,7 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
             <label className="text-xs text-slate-400">
               Max Price: <strong className="text-emerald-400 font-mono">£{maxPrice.toFixed(1)}m</strong>
             </label>
@@ -439,49 +468,49 @@ export default function Home() {
               step="0.5"
               value={maxPrice}
               onChange={(e) => setMaxPrice(parseFloat(e.target.value))}
-              className="w-28 accent-emerald-500 cursor-pointer"
+              className="w-32 accent-emerald-500 cursor-pointer"
             />
           </div>
         </div>
 
-        {/* Player Table */}
+        {/* Table */}
         {loading ? (
-          <div className="p-8 text-center border border-slate-800 rounded-lg bg-slate-900/30">
-            <p className="text-slate-400 animate-pulse">Running live scouting analysis...</p>
+          <div className="p-12 text-center border border-slate-800 rounded-xl bg-slate-900/30">
+            <p className="text-slate-400 animate-pulse text-sm">Gathering live Premier League numbers...</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/40 backdrop-blur">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider bg-slate-900/60 select-none">
-                  <th onClick={() => handleSort("name")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+          <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/30 backdrop-blur shadow-2xl">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 select-none shadow-sm">
+                <tr className="text-slate-400 text-[11px] uppercase tracking-wider">
+                  <th onClick={() => handleSort("name")} className="py-3 px-4 cursor-pointer hover:text-white">
                     Player {renderSortIndicator("name")}
                   </th>
-                  <th className="py-3.5 px-4">Pos</th>
-                  <th className="py-3.5 px-4">Club</th>
-                  <th onClick={() => handleSort("costRaw")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                  <th className="py-3 px-3">Pos</th>
+                  <th className="py-3 px-3">Club</th>
+                  <th onClick={() => handleSort("costRaw")} className="py-3 px-3 cursor-pointer hover:text-white">
                     Cost {renderSortIndicator("costRaw")}
                   </th>
-                  <th onClick={() => handleSort("ownership")} className="py-3.5 px-4 cursor-pointer hover:text-white">
-                    Ownership {renderSortIndicator("ownership")}
+                  <th onClick={() => handleSort("ownership")} className="py-3 px-3 cursor-pointer hover:text-white">
+                    Own {renderSortIndicator("ownership")}
                   </th>
-                  <th onClick={() => handleSort("form")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                  <th onClick={() => handleSort("form")} className="py-3 px-3 cursor-pointer hover:text-white">
                     Form {renderSortIndicator("form")}
                   </th>
-                  <th onClick={() => handleSort("xG")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                  <th onClick={() => handleSort("xG")} className="py-3 px-3 cursor-pointer hover:text-white">
                     xG {renderSortIndicator("xG")}
                   </th>
-                  <th onClick={() => handleSort("xA")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                  <th onClick={() => handleSort("xA")} className="py-3 px-3 cursor-pointer hover:text-white">
                     xA {renderSortIndicator("xA")}
                   </th>
-                  <th className="py-3.5 px-4">Next 3 Fixtures</th>
-                  <th className="py-3.5 px-4 text-right">Rival Spy Verdict</th>
+                  <th className="py-3 px-4">Next 3 Runs</th>
+                  <th className="py-3 px-4 text-right">Rival Spy</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 text-sm">
+              <tbody className="divide-y divide-slate-800/60">
                 {filteredPlayers.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-500">
+                    <td colSpan={10} className="py-12 text-center text-slate-500 text-sm">
                       No differentials match your selected filters.
                     </td>
                   </tr>
@@ -495,25 +524,25 @@ export default function Home() {
                     if (myManager) {
                       if (iOwn) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
                             In Your Squad
                           </span>
                         );
                       } else if (rivalOwns) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/20 text-rose-300 border border-rose-500/30 whitespace-nowrap">
                             ⚠️ Rival Owns
                           </span>
                         );
                       } else if (rivalManager && !rivalOwns && !iOwn) {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse">
                             🔥 Leapfrog Target
                           </span>
                         );
                       } else {
                         badge = (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
                             Scout Target
                           </span>
                         );
@@ -527,23 +556,23 @@ export default function Home() {
                           iOwn ? "bg-emerald-950/15" : rivalOwns ? "bg-rose-950/15" : "hover:bg-slate-800/30"
                         }`}
                       >
-                        <td className="py-3.5 px-4 font-semibold text-slate-100">{p.name}</td>
-                        <td className="py-3.5 px-4">
-                          <span className="text-xs text-slate-400 font-mono font-medium">{p.position}</span>
+                        <td className="py-3 px-4 font-semibold text-slate-100 whitespace-nowrap">{p.name}</td>
+                        <td className="py-3 px-3">
+                          <span className="text-[11px] text-slate-400 font-mono font-medium">{p.position}</span>
                         </td>
-                        <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded bg-slate-800 text-xs font-medium text-slate-300">
+                        <td className="py-3 px-3">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] font-medium text-slate-300">
                             {p.team}
                           </span>
                         </td>
-                        <td className="py-3.5 px-4 font-mono text-emerald-400 font-medium">£{p.price}m</td>
-                        <td className="py-3.5 px-4 font-mono text-slate-300">{p.ownership}</td>
-                        <td className="py-3.5 px-4 font-semibold text-amber-400">{p.form}</td>
-                        <td className="py-3.5 px-4 font-mono text-slate-300">{p.xG}</td>
-                        <td className="py-3.5 px-4 font-mono text-slate-300">{p.xA}</td>
+                        <td className="py-3 px-3 font-mono text-emerald-400 font-medium">£{p.price}m</td>
+                        <td className="py-3 px-3 font-mono text-slate-300">{p.ownership}</td>
+                        <td className="py-3 px-3 font-semibold text-amber-400">{p.form}</td>
+                        <td className="py-3 px-3 font-mono text-slate-300">{p.xG}</td>
+                        <td className="py-3 px-3 font-mono text-slate-300">{p.xA}</td>
                         
-                        <td className="py-3.5 px-4">
-                          <div className="flex gap-1.5">
+                        <td className="py-3 px-4">
+                          <div className="flex gap-1">
                             {p.nextFixtures.length > 0 ? (
                               p.nextFixtures.map((f, idx) => (
                                 <FDRBadge key={idx} fixture={f} />
@@ -554,7 +583,7 @@ export default function Home() {
                           </div>
                         </td>
 
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3 px-4 text-right">
                           {badge}
                         </td>
                       </tr>
