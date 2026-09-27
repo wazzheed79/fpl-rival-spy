@@ -26,6 +26,13 @@ export async function GET() {
       teamMap[t.id] = t.short_name;
     });
 
+    const positionMap: Record<number, string> = {
+      1: "GKP",
+      2: "DEF",
+      3: "MID",
+      4: "FWD",
+    };
+
     const teamNextFixtures: Record<
       number,
       Array<{ opponent: string; isHome: boolean; difficulty: number }>
@@ -52,16 +59,18 @@ export async function GET() {
       }
     }
 
+    // Return the top 40 form differentials under 10% ownership so filtering has plenty of choices
     const topDifferentials = players
       .filter((p: any) => parseFloat(p.selected_by_percent) < 10.0 && p.minutes >= 180)
       .sort((a: any, b: any) => parseFloat(b.form) - parseFloat(a.form))
-      .slice(0, 12)
+      .slice(0, 40)
       .map((p: any) => ({
         id: p.id,
         name: p.web_name,
-        teamId: p.team,
+        position: positionMap[p.element_type] || "MID",
         team: teamMap[p.team] || "PL",
         price: (p.now_cost / 10).toFixed(1),
+        costRaw: p.now_cost / 10,
         ownership: `${p.selected_by_percent}%`,
         form: p.form,
         totalPoints: p.total_points,
