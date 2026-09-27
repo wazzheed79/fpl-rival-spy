@@ -59,10 +59,11 @@ export async function GET() {
       }
     }
 
-    const topDifferentials = players
-      .filter((p: any) => parseFloat(p.selected_by_percent) < 10.0 && p.minutes >= 180)
+    // Broad pool: filter out completely inactive players, slice top 200 by form/minutes
+    const pool = players
+      .filter((p: any) => p.minutes >= 90 || parseFloat(p.form) > 1.0)
       .sort((a: any, b: any) => parseFloat(b.form) - parseFloat(a.form))
-      .slice(0, 40)
+      .slice(0, 200)
       .map((p: any) => ({
         id: p.id,
         name: p.web_name,
@@ -71,6 +72,7 @@ export async function GET() {
         price: (p.now_cost / 10).toFixed(1),
         costRaw: p.now_cost / 10,
         ownership: `${p.selected_by_percent}%`,
+        ownershipRaw: parseFloat(p.selected_by_percent) || 0,
         form: p.form,
         totalPoints: p.total_points,
         xG: p.expected_goals || "0.00",
@@ -78,7 +80,7 @@ export async function GET() {
         nextFixtures: teamNextFixtures[p.team] || [],
       }));
 
-    return NextResponse.json(topDifferentials);
+    return NextResponse.json(pool);
   } catch (error) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

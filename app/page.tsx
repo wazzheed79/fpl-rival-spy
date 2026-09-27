@@ -16,6 +16,7 @@ interface Player {
   price: string;
   costRaw: number;
   ownership: string;
+  ownershipRaw: number;
   form: string;
   totalPoints: number;
   xG: string;
@@ -45,7 +46,7 @@ interface LeagueRival {
   total: number;
 }
 
-type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownership";
+type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownershipRaw";
 type SortDirection = "asc" | "desc";
 
 function FDRBadge({ fixture }: { fixture: Fixture }) {
@@ -83,6 +84,7 @@ export default function Home() {
   // Filters
   const [selectedPos, setSelectedPos] = useState<string>("ALL");
   const [maxPrice, setMaxPrice] = useState<number>(15.0);
+  const [maxOwnership, setMaxOwnership] = useState<number>(10.0);
   const [easyRunOnly, setEasyRunOnly] = useState<boolean>(false);
 
   // Sorting
@@ -201,12 +203,13 @@ export default function Home() {
       .filter((p) => {
         const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
         const matchesPrice = p.costRaw <= maxPrice;
+        const matchesOwnership = p.ownershipRaw <= maxOwnership;
         const matchesEasy =
           !easyRunOnly ||
           (p.nextFixtures.length > 0 &&
             p.nextFixtures.every((f) => f.difficulty <= 3));
 
-        return matchesPos && matchesPrice && matchesEasy;
+        return matchesPos && matchesPrice && matchesOwnership && matchesEasy;
       })
       .sort((a, b) => {
         let valA: number | string = 0;
@@ -232,16 +235,16 @@ export default function Home() {
         } else if (sortField === "xA") {
           valA = parseFloat(a.xA) || 0;
           valB = parseFloat(b.xA) || 0;
-        } else if (sortField === "ownership") {
-          valA = parseFloat(a.ownership) || 0;
-          valB = parseFloat(b.ownership) || 0;
+        } else if (sortField === "ownershipRaw") {
+          valA = a.ownershipRaw;
+          valB = b.ownershipRaw;
         }
 
         return sortDir === "asc"
           ? (valA as number) - (valB as number)
           : (valB as number) - (valA as number);
       });
-  }, [players, selectedPos, maxPrice, easyRunOnly, sortField, sortDir]);
+  }, [players, selectedPos, maxPrice, maxOwnership, easyRunOnly, sortField, sortDir]);
 
   const leapfrogCount = useMemo(() => {
     if (!rivalManager || !myManager) return 0;
@@ -428,48 +431,90 @@ export default function Home() {
           )}
         </div>
 
-        {/* Filter Toolbar */}
-        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between p-4 rounded-xl border border-slate-800 bg-slate-900/40">
-          <div className="flex flex-wrap gap-2">
-            {["ALL", "DEF", "MID", "FWD", "GKP"].map((pos) => (
+        {/* Filter Toolbar with Position, Easy Run, Max Price & Max Ownership */}
+        <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-4">
+          <div className="flex flex-wrap gap-2 items-center justify-between">
+            <div className="flex flex-wrap gap-2">
+              {["ALL", "DEF", "MID", "FWD", "GKP"].map((pos) => (
+                <button
+                  key={pos}
+                  onClick={() => setSelectedPos(pos)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
+                    selectedPos === pos
+                      ? "bg-emerald-500 text-slate-950 shadow-sm"
+                      : "bg-slate-800/80 text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {pos}
+                </button>
+              ))}
+
               <button
-                key={pos}
-                onClick={() => setSelectedPos(pos)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
-                  selectedPos === pos
-                    ? "bg-emerald-500 text-slate-950 shadow-sm"
-                    : "bg-slate-800/80 text-slate-400 hover:text-white"
+                onClick={() => setEasyRunOnly(!easyRunOnly)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${
+                  easyRunOnly
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
+                    : "bg-slate-800/80 text-slate-400 border-transparent hover:text-white"
                 }`}
               >
-                {pos}
+                <span>🟢</span> Easy Run Only
               </button>
-            ))}
+            </div>
 
-            <button
-              onClick={() => setEasyRunOnly(!easyRunOnly)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${
-                easyRunOnly
-                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
-                  : "bg-slate-800/80 text-slate-400 border-transparent hover:text-white"
-              }`}
-            >
-              <span>🟢</span> Easy Run Only
-            </button>
+            {/* Differential Threshold Presets */}
+            <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
+              {[
+                { label: "Ultra (<3%)", val: 3.0 },
+                { label: "Punt (<10%)", val: 10.0 },
+                { label: "Semi (<20%)", val: 20.0 },
+                { label: "All (<100%)", val: 100.0 },
+              ].map((btn) => (
+                <button
+                  key={btn.val}
+                  onClick={() => setMaxOwnership(btn.val)}
+                  className={`px-2 py-1 rounded font-semibold transition-colors ${
+                    maxOwnership === btn.val
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
-            <label className="text-xs text-slate-400">
-              Max Price: <strong className="text-emerald-400 font-mono">£{maxPrice.toFixed(1)}m</strong>
-            </label>
-            <input
-              type="range"
-              min="4.0"
-              max="15.0"
-              step="0.5"
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(parseFloat(e.target.value))}
-              className="w-32 accent-emerald-500 cursor-pointer"
-            />
+          {/* Sliders: Max Price & Max Ownership */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
+            <div className="flex items-center justify-between sm:justify-start gap-3">
+              <label className="text-xs text-slate-400 min-w-[130px]">
+                Max Price: <strong className="text-emerald-400 font-mono">£{maxPrice.toFixed(1)}m</strong>
+              </label>
+              <input
+                type="range"
+                min="4.0"
+                max="15.0"
+                step="0.5"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(parseFloat(e.target.value))}
+                className="w-36 accent-emerald-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center justify-between sm:justify-start gap-3">
+              <label className="text-xs text-slate-400 min-w-[130px]">
+                Ownership Under: <strong className="text-indigo-400 font-mono">{maxOwnership}%</strong>
+              </label>
+              <input
+                type="range"
+                min="1.0"
+                max="50.0"
+                step="1.0"
+                value={maxOwnership}
+                onChange={(e) => setMaxOwnership(parseFloat(e.target.value))}
+                className="w-36 accent-indigo-500 cursor-pointer"
+              />
+            </div>
           </div>
         </div>
 
@@ -491,8 +536,8 @@ export default function Home() {
                   <th onClick={() => handleSort("costRaw")} className="py-3 px-3 cursor-pointer hover:text-white">
                     Cost {renderSortIndicator("costRaw")}
                   </th>
-                  <th onClick={() => handleSort("ownership")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    Own {renderSortIndicator("ownership")}
+                  <th onClick={() => handleSort("ownershipRaw")} className="py-3 px-3 cursor-pointer hover:text-white">
+                    Own {renderSortIndicator("ownershipRaw")}
                   </th>
                   <th onClick={() => handleSort("form")} className="py-3 px-3 cursor-pointer hover:text-white">
                     Form {renderSortIndicator("form")}
@@ -511,7 +556,7 @@ export default function Home() {
                 {filteredPlayers.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="py-12 text-center text-slate-500 text-sm">
-                      No differentials match your selected filters.
+                      No differentials match your selected filters. Try sliding Ownership or Price higher.
                     </td>
                   </tr>
                 ) : (
@@ -566,7 +611,7 @@ export default function Home() {
                           </span>
                         </td>
                         <td className="py-3 px-3 font-mono text-emerald-400 font-medium">£{p.price}m</td>
-                        <td className="py-3 px-3 font-mono text-slate-300">{p.ownership}</td>
+                        <td className="py-3 px-3 font-mono text-indigo-300">{p.ownership}</td>
                         <td className="py-3 px-3 font-semibold text-amber-400">{p.form}</td>
                         <td className="py-3 px-3 font-mono text-slate-300">{p.xG}</td>
                         <td className="py-3 px-3 font-mono text-slate-300">{p.xA}</td>
