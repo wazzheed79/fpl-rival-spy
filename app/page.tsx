@@ -458,6 +458,112 @@ export default function Home() {
     return { sharedCount, differentialCount, pointsSwing };
   }, [myManager, rivalManager]);
 
+  // Leapfrog Transfer Engine Recommendations Calculation
+  const transferRecommendations = useMemo(() => {
+    if (!myManager) return [];
+
+    const squadIds = new Set([
+      ...(myManager.startingXI || []).map((p) => p.id),
+      ...(myManager.bench || []).map((p) => p.id),
+    ]);
+
+    const bank = myManager.bank || 0;
+    const rivalOwnedIds = new Set(rivalManager?.ownedPlayerIds || []);
+    const leagueRivalOwnedIds = new Set<number>();
+    leagueRivals.forEach((r) => {
+      if (r.ownedPlayerIds) {
+        r.ownedPlayerIds.forEach((id) => leagueRivalOwnedIds.add(id));
+      }
+    });
+
+    // 1. Identify sell candidates in user squad (form < 3.5 or tough fixtures max >= 4)
+    const squadPlayers = players.filter((p) => squadIds.has(p.id));
+    const sellCandidates = squadPlayers.filter((p) => {
+      const formNum = parseFloat(p.form) || 0;
+      const maxFdr = p.nextFixtures.length > 0 ? Math.max(...p.nextFixtures.map((f) => f.difficulty)) : 0;
+      return formNum < 3.5 || maxFdr >= 4;
+    });
+
+    const evaluatedSwaps: Array<{
+      sell: Player;
+      buy: Player;
+      score: number;
+      formDelta: number;
+      bankAfter: number;
+      netImpactBadges: string[];
+    }> = [];
+
+    for (const sell of sellCandidates) {
+      // Find valid replacements in same position
+      const candidates = players.filter((p) => {
+        if (p.position !== sell.position) return false;
+        if (squadIds.has(p.id)) return false;
+        if (rivalOwnedIds.has(p.id)) return false;
+        if (leagueRivalOwnedIds.has(p.id)) return false;
+
+        // Budget check
+        const costAllowed = sell.costRaw + bank;
+        if (p.costRaw > costAllowed) return false;
+
+        // Favorable 3-gw FDR (avg <= 2.6)
+        if (p.nextFixtures.length === 0) return false;
+        const avgFdr = p.nextFixtures.reduce((sum, f) => sum + f.difficulty, 0) / p.nextFixtures.length;
+        if (avgFdr > 2.6) return false;
+
+        // Form momentum check: buy form > sell form
+        const sellForm = parseFloat(sell.form) || 0;
+        const buyForm = parseFloat(p.form) || 0;
+        if (buyForm <= sellForm) return false;
+
+        return true;
+      });
+
+      for (const buy of candidates) {
+        const sellForm = parseFloat(sell.form) || 0;
+        const buyForm = parseFloat(buy.form) || 0;
+        const formDelta = buyForm - sellForm;
+        const bankAfter = sell.costRaw + bank - buy.costRaw;
+
+        const score = formDelta * 3 + (parseFloat(buy.xG) + parseFloat(buy.xA)) * 2 - (buy.ownershipRaw * 0.1);
+
+        const badges: string[] = [];
+        badges.push(`+${formDelta.toFixed(1)} Form Delta`);
+        if (buy.ownershipRaw < 5) {
+          badges.push("⚡ Ultra Differential (<5%)");
+        } else {
+          badges.push("Unowned by Rivals");
+        }
+        badges.push(`Leaves £${bankAfter.toFixed(1)}m in bank`);
+
+        evaluatedSwaps.push({
+          sell,
+          buy,
+          score,
+          formDelta,
+          bankAfter,
+          netImpactBadges: badges,
+        });
+      }
+    }
+
+    evaluatedSwaps.sort((a, b) => b.score - a.score);
+
+    const seenSells = new Set<number>();
+    const seenBuys = new Set<number>();
+    const topSwaps = [];
+
+    for (const swap of evaluatedSwaps) {
+      if (!seenSells.has(swap.sell.id) && !seenBuys.has(swap.buy.id)) {
+        seenSells.add(swap.sell.id);
+        seenBuys.add(swap.buy.id);
+        topSwaps.push(swap);
+        if (topSwaps.length >= 3) break;
+      }
+    }
+
+    return topSwaps;
+  }, [myManager, rivalManager, leagueRivals, players]);
+
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field) return <span className="text-slate-600 ml-1">↕</span>;
     return sortDir === "asc" ? (
@@ -840,6 +946,154 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* ⚡ Leapfrog Transfer Engine Card */}
+        <div className="p-5 sm:p-6 rounded-2xl border border-amber-500/40 bg-gradient-to-br from-slate-900 via-slate-900/95 to-amber-950/20 shadow-2xl relative overflow-hidden space-y-5">
+          <div className="absolute top-0 right-0 w-72 h-72 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xl shadow-inner">
+                ⚡
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+                    Leapfrog Transfer Engine
+                  </h3>
+                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold rounded-full border border-amber-500/30">
+                    AI RECOMMENDATIONS
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Algorithmic swaps targeting underperforming assets & unowned mini-league differential green runs.
+                </p>
+              </div>
+            </div>
+
+            {myManager && (
+              <div className="text-right font-mono text-xs text-slate-400 bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 flex items-center gap-3">
+                <span>Bank: <strong className="text-emerald-400 font-bold">£{myManager.bank?.toFixed(1)}m</strong></span>
+                <span>Swaps Found: <strong className="text-amber-400 font-bold">{transferRecommendations.length}</strong></span>
+              </div>
+            )}
+          </div>
+
+          {!myManager ? (
+            <div className="py-10 text-center bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+              <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg">
+                ⚡
+              </div>
+              <h4 className="text-sm font-bold text-white">Leapfrog Engine Awaiting Squad Sync</h4>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Enter your FPL Team ID above and click Compare to activate algorithmic transfer recommendations tailored to your squad and mini-league rivals.
+              </p>
+            </div>
+          ) : transferRecommendations.length === 0 ? (
+            <div className="py-10 text-center bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
+              <p className="text-sm font-bold text-slate-300">No urgent transfer recommendations found under current thresholds.</p>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Your current 15-player squad is performing well with favorable upcoming fixtures. Check back after gameweek deadline or adjust filters.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {transferRecommendations.map((rec, idx) => (
+                <div
+                  key={idx}
+                  className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-4 hover:border-amber-500/50 transition-all shadow-xl group"
+                >
+                  {/* Swap Header / Net Impact Badges */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-mono text-amber-400 bg-amber-950/30 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                      <span>Recommendation #{idx + 1}</span>
+                      <span className="font-bold">⚡ Leapfrog Swap</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1">
+                      {rec.netImpactBadges.map((badge, bIdx) => (
+                        <span
+                          key={bIdx}
+                          className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold rounded-md font-mono"
+                        >
+                          {badge}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* SELL & BUY Card Comparison */}
+                  <div className="space-y-3">
+                    {/* SELL */}
+                    <div className="bg-rose-950/20 border border-rose-500/30 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-rose-400 font-bold uppercase tracking-wider text-[10px]">
+                          🔴 OUT (Sell)
+                        </span>
+                        <span className="text-slate-400 font-mono text-[10px]">
+                          {rec.sell.position} • £{rec.sell.price}m
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="font-black text-sm text-white">{rec.sell.name}</h5>
+                          <span className="text-[11px] text-slate-400">{rec.sell.team}</span>
+                        </div>
+                        <div className="text-right font-mono">
+                          <span className="text-[10px] text-slate-400 block">Form</span>
+                          <span className="text-sm font-bold text-rose-300">{rec.sell.form}</span>
+                        </div>
+                      </div>
+                      {/* Tough Fixtures */}
+                      <div className="pt-1.5 border-t border-rose-500/20 flex gap-1 items-center overflow-x-auto">
+                        <span className="text-[10px] text-slate-400 mr-1 whitespace-nowrap">Tough run:</span>
+                        {rec.sell.nextFixtures.slice(0, 2).map((f, fIdx) => (
+                          <FDRBadge key={fIdx} fixture={f} />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Arrow Divider */}
+                    <div className="flex justify-center -my-1 relative z-10">
+                      <span className="w-7 h-7 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-amber-400 text-xs shadow-md">
+                        ↓
+                      </span>
+                    </div>
+
+                    {/* BUY */}
+                    <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono text-emerald-400 font-bold uppercase tracking-wider text-[10px]">
+                          🟢 IN (Differential Buy)
+                        </span>
+                        <span className="text-slate-400 font-mono text-[10px]">
+                          {rec.buy.position} • £{rec.buy.price}m ({rec.buy.ownership} owned)
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="font-black text-sm text-white">{rec.buy.name}</h5>
+                          <span className="text-[11px] text-slate-400">{rec.buy.team}</span>
+                        </div>
+                        <div className="text-right font-mono">
+                          <span className="text-[10px] text-slate-400 block">Form</span>
+                          <span className="text-sm font-bold text-emerald-300">{rec.buy.form}</span>
+                        </div>
+                      </div>
+                      {/* Easy Green Run FDR Badges */}
+                      <div className="pt-1.5 border-t border-emerald-500/20 flex gap-1 items-center overflow-x-auto">
+                        <span className="text-[10px] text-slate-400 mr-1 whitespace-nowrap">Green Run:</span>
+                        {rec.buy.nextFixtures.slice(0, 3).map((f, fIdx) => (
+                          <FDRBadge key={fIdx} fixture={f} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Filter Toolbar with Position, Easy Run, Max Price & Max Ownership */}
         <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-4">
