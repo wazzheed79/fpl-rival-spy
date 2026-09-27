@@ -29,6 +29,9 @@ interface ManagerInfo {
   ownedPlayerIds: number[];
 }
 
+type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownership";
+type SortDirection = "asc" | "desc";
+
 function FDRBadge({ fixture }: { fixture: Fixture }) {
   const getFDRStyle = (diff: number) => {
     switch (diff) {
@@ -65,6 +68,10 @@ export default function Home() {
   const [selectedPos, setSelectedPos] = useState<string>("ALL");
   const [maxPrice, setMaxPrice] = useState<number>(15.0);
   const [easyRunOnly, setEasyRunOnly] = useState<boolean>(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField>("form");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
 
   // User & Rival IDs
   const [myTeamId, setMyTeamId] = useState("");
@@ -131,17 +138,67 @@ export default function Home() {
     lookupManager(myTeamId, rivalTeamId);
   };
 
-  // Filter logic
-  const filteredPlayers = players.filter((p) => {
-    const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
-    const matchesPrice = p.costRaw <= maxPrice;
-    const matchesEasy =
-      !easyRunOnly ||
-      (p.nextFixtures.length > 0 &&
-        p.nextFixtures.every((f) => f.difficulty <= 3));
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
 
-    return matchesPos && matchesPrice && matchesEasy;
-  });
+  // Filter and sort logic
+  const filteredPlayers = players
+    .filter((p) => {
+      const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
+      const matchesPrice = p.costRaw <= maxPrice;
+      const matchesEasy =
+        !easyRunOnly ||
+        (p.nextFixtures.length > 0 &&
+          p.nextFixtures.every((f) => f.difficulty <= 3));
+
+      return matchesPos && matchesPrice && matchesEasy;
+    })
+    .sort((a, b) => {
+      let valA: number | string = 0;
+      let valB: number | string = 0;
+
+      if (sortField === "name") {
+        valA = a.name.toLowerCase();
+        valB = b.name.toLowerCase();
+        return sortDir === "asc"
+          ? (valA as string).localeCompare(valB as string)
+          : (valB as string).localeCompare(valA as string);
+      }
+
+      if (sortField === "costRaw") {
+        valA = a.costRaw;
+        valB = b.costRaw;
+      } else if (sortField === "form") {
+        valA = parseFloat(a.form) || 0;
+        valB = parseFloat(b.form) || 0;
+      } else if (sortField === "xG") {
+        valA = parseFloat(a.xG) || 0;
+        valB = parseFloat(b.xG) || 0;
+      } else if (sortField === "xA") {
+        valA = parseFloat(a.xA) || 0;
+        valB = parseFloat(b.xA) || 0;
+      } else if (sortField === "ownership") {
+        valA = parseFloat(a.ownership) || 0;
+        valB = parseFloat(b.ownership) || 0;
+      }
+
+      return sortDir === "asc" ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
+    });
+
+  const renderSortIndicator = (field: SortField) => {
+    if (sortField !== field) return <span className="text-slate-600 ml-1">↕</span>;
+    return sortDir === "asc" ? (
+      <span className="text-emerald-400 ml-1 font-bold">↑</span>
+    ) : (
+      <span className="text-emerald-400 ml-1 font-bold">↓</span>
+    );
+  };
 
   return (
     <main className="min-h-screen bg-slate-950 text-white p-6 md:p-12">
@@ -268,15 +325,27 @@ export default function Home() {
           <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/40 backdrop-blur">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider bg-slate-900/60">
-                  <th className="py-3.5 px-4">Player</th>
+                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider bg-slate-900/60 select-none">
+                  <th onClick={() => handleSort("name")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    Player {renderSortIndicator("name")}
+                  </th>
                   <th className="py-3.5 px-4">Pos</th>
                   <th className="py-3.5 px-4">Club</th>
-                  <th className="py-3.5 px-4">Cost</th>
-                  <th className="py-3.5 px-4">Ownership</th>
-                  <th className="py-3.5 px-4">Form</th>
-                  <th className="py-3.5 px-4">xG</th>
-                  <th className="py-3.5 px-4">xA</th>
+                  <th onClick={() => handleSort("costRaw")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    Cost {renderSortIndicator("costRaw")}
+                  </th>
+                  <th onClick={() => handleSort("ownership")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    Ownership {renderSortIndicator("ownership")}
+                  </th>
+                  <th onClick={() => handleSort("form")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    Form {renderSortIndicator("form")}
+                  </th>
+                  <th onClick={() => handleSort("xG")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    xG {renderSortIndicator("xG")}
+                  </th>
+                  <th onClick={() => handleSort("xA")} className="py-3.5 px-4 cursor-pointer hover:text-white">
+                    xA {renderSortIndicator("xA")}
+                  </th>
                   <th className="py-3.5 px-4">Next 3 Fixtures</th>
                   <th className="py-3.5 px-4 text-right">Rival Spy Verdict</th>
                 </tr>
