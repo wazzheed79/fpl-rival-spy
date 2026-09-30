@@ -1,68 +1,55 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from 'next/server';
+import { fetchFPL } from '@/lib/fpl/client';
+
+interface StandingsResult {
+  id: number;
+  entry: number;
+  entry_name: string;
+  player_name: string;
+  rank: number;
+  last_rank: number;
+  total: number;
+}
+
+interface LeagueApiResponse {
+  league: {
+    id: number;
+    name: string;
+  };
+  standings: {
+    results: StandingsResult[];
+  };
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const leagueId = searchParams.get("leagueId");
+  const leagueId = searchParams.get('leagueId');
 
   if (!leagueId) {
-    return NextResponse.json({ error: "League ID is required" }, { status: 400 });
+    return NextResponse.json({ error: 'leagueId is required' }, { status: 400 });
   }
 
   try {
-    const bootstrapRes = await fetch("https://fantasy.premierleague.com/api/bootstrap-static/", {
-      next: { revalidate: 1800 },
-    });
-    if (!bootstrapRes.ok) {
-      return NextResponse.json({ error: "Failed to fetch FPL bootstrap data" }, { status: 500 });
-    }
-    const bootstrap = await bootstrapRes.json();
-    const currentEvent = bootstrap.events.find((e: any) => e.is_current || e.is_next)?.id || 1;
-
-    const leagueRes = await fetch(`https://fantasy.premierleague.com/api/leagues-classic/${leagueId}/standings/`, {
-      next: { revalidate: 300 },
-    });
-    if (!leagueRes.ok) {
-      return NextResponse.json({ error: "Mini-league not found or invalid ID" }, { status: 404 });
-    }
-    const leagueData = await leagueRes.json();
-    const leagueName = leagueData.league?.name || `League #${leagueId}`;
-    const rawStandings = leagueData.standings?.results || [];
-
-    const topRivals = rawStandings.slice(0, 15);
-
-    const rivalsWithSquads = await Promise.all(
-      topRivals.map(async (r: any) => {
-        let ownedPlayerIds: number[] = [];
-        try {
-          const picksRes = await fetch(`https://fantasy.premierleague.com/api/entry/${r.entry}/event/${currentEvent}/picks/`, {
-            next: { revalidate: 300 },
-          });
-          if (picksRes.ok) {
-            const picksData = await picksRes.json();
-            if (picksData.picks && Array.isArray(picksData.picks)) {
-              ownedPlayerIds = picksData.picks.map((p: any) => p.element);
-            }
-          }
-        } catch {
-          // Ignore individual pick fetch failure
-        }
-
-        return {
-          entry: r.entry,
-          player_name: r.player_name,
-          entry_name: r.entry_name,
-          rank: r.rank,
-          total: r.total,
-          ownedPlayerIds,
-        };
-      })
+    const data = await fetchFPL<LeagueApiResponse>(
+      `/leagues-classic/${leagueId}/standings/`,
+      120 // Cache league table for 2 mins
     );
 
+    const competitors = data.standings.results.map((m) => ({
+      entry: m.entry,
+      teamName: m.entry_name,
+      managerName: m.player_name,
+      rank: m.rank,
+      totalPoints: m.total,
+    }));
+
     return NextResponse.json({
-      leagueName,
-      rivals: rivalsWithSquads,
+      leagueId: data.league.id,
+      leagueName: data.league.name,
+      standings: competitors,
     });
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch league standings from FPL" }, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch league data';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

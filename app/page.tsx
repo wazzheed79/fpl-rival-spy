@@ -1,1324 +1,639 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 
-interface Fixture {
-  opponent: string;
-  isHome: boolean;
-  difficulty: number;
-}
-
-interface Player {
-  id: number;
-  name: string;
-  position: string;
-  team: string;
-  price: string;
-  costRaw: number;
-  ownership: string;
-  ownershipRaw: number;
-  form: string;
-  totalPoints: number;
-  xG: string;
-  xA: string;
-  nextFixtures: Fixture[];
-}
-
-interface CaptainInfo {
-  id: number;
-  name: string;
-}
-
-interface PlayerPick {
-  id: number;
-  name: string;
-  position: string;
-  elementType: number;
-  rawPoints: number;
-  points: number;
+interface EnrichedLivePick {
+  element: number;
+  position: number;
   multiplier: number;
-  isCaptain: boolean;
-  isViceCaptain: boolean;
-}
-
-interface ChipsRemaining {
-  wildcard: number;
-  freehit: number;
-  bboost: number;
-  tripleCaptain: number;
-}
-
-interface ChipUsage {
+  is_captain: boolean;
+  is_vice_captain: boolean;
   name: string;
-  event: number;
-  time: string;
+  type: number;
+  cost: number;
+  form: string;
+  duelRole: "SHIELD" | "WEAPON" | "RIVAL_DANGER";
+  livePoints: number;
+  effectivePoints: number;
+  minutes: number;
 }
 
-interface ManagerInfo {
+interface ChipStatus {
+  name: string;
+  key: string;
+  playedEvent: number | null;
+  isAvailable: boolean;
+}
+
+interface SquadData {
+  picks: EnrichedLivePick[];
+  chip: string | null;
+  bank: number;
+  liveTotal: number;
+  chipsInventory: ChipStatus[];
+}
+
+interface DuelResponse {
+  gameweek: number;
+  netDelta: number;
+  myTeam: SquadData;
+  rivalTeam: SquadData;
+}
+
+interface Competitor {
+  entry: number;
   teamName: string;
   managerName: string;
-  ownedPlayerIds: number[];
-  startingXI: PlayerPick[];
-  bench: PlayerPick[];
-  formation: string;
-  totalStartingPoints: number;
-  captain?: CaptainInfo | null;
-  viceCaptain?: CaptainInfo | null;
-  activeGameweek?: number;
-  bank?: number;
-  value?: number;
-  chipsRemaining?: ChipsRemaining;
-  chipsUsed?: ChipUsage[];
-}
-
-interface LeagueRival {
-  entry: number;
-  player_name: string;
-  entry_name: string;
   rank: number;
-  total: number;
-  ownedPlayerIds?: number[];
+  totalPoints: number;
 }
 
-type SortField = "name" | "costRaw" | "form" | "xG" | "xA" | "ownershipRaw";
-type SortDirection = "asc" | "desc";
-
-function FDRBadge({ fixture }: { fixture: Fixture }) {
-  const getFDRStyle = (diff: number) => {
-    switch (diff) {
-      case 2:
-        return "bg-emerald-950/80 text-emerald-300 border-emerald-600/50";
-      case 3:
-        return "bg-slate-800 text-slate-300 border-slate-700";
-      case 4:
-        return "bg-rose-950/80 text-rose-300 border-rose-600/50";
-      case 5:
-        return "bg-red-950 text-red-200 border-red-500 font-black";
-      default:
-        return "bg-slate-800 text-slate-300 border-slate-700";
-    }
+interface TransferRecommendation {
+  sellPlayer: {
+    id: number;
+    name: string;
+    cost: number;
+    form: number;
+    type: number;
   };
-
-  return (
-    <span
-      title={`Difficulty: ${fixture.difficulty}/5`}
-      className={`inline-block px-1.5 py-0.5 text-[10px] md:text-[11px] font-mono rounded border whitespace-nowrap ${getFDRStyle(
-        fixture.difficulty
-      )}`}
-    >
-      {fixture.opponent} ({fixture.isHome ? "H" : "A"})
-    </span>
-  );
-}
-
-function PitchView({
-  manager,
-  otherManager,
-  title,
-  themeColor,
-}: {
-  manager: ManagerInfo;
-  otherManager: ManagerInfo | null;
-  title: string;
-  themeColor: "emerald" | "rose";
-}) {
-  const otherStartingIds = useMemo(() => {
-    if (!otherManager || !otherManager.startingXI) return new Set<number>();
-    return new Set(otherManager.startingXI.map((p) => p.id));
-  }, [otherManager]);
-
-  const startingXI = manager.startingXI || [];
-  const bench = manager.bench || [];
-
-  const fwds = startingXI.filter((p) => p.elementType === 4);
-  const mids = startingXI.filter((p) => p.elementType === 3);
-  const defs = startingXI.filter((p) => p.elementType === 2);
-  const gkps = startingXI.filter((p) => p.elementType === 1);
-
-  const renderPlayerCard = (p: PlayerPick) => {
-    const isShared = otherStartingIds.has(p.id);
-    const isMine = themeColor === "emerald";
-
-    let badgeClass = "bg-slate-900/90 border-slate-700 text-slate-200";
-    let statusLabel = "";
-    let statusEmoji = "";
-
-    if (otherManager) {
-      if (isShared) {
-        badgeClass = "bg-emerald-950/90 border-emerald-500/70 text-emerald-200 ring-1 ring-emerald-500/40";
-        statusLabel = "Shared Shield";
-        statusEmoji = "🟢";
-      } else if (isMine) {
-        badgeClass = "bg-sky-950/90 border-sky-500/70 text-sky-200 ring-1 ring-sky-500/40";
-        statusLabel = "Your Weapon";
-        statusEmoji = "🔵";
-      } else {
-        badgeClass = "bg-rose-950/90 border-rose-500/70 text-rose-200 ring-1 ring-rose-500/40";
-        statusLabel = "Rival Danger";
-        statusEmoji = "🔴";
-      }
-    }
-
-    return (
-      <div
-        key={p.id}
-        title={`${p.name} (${p.position}) - ${p.points} pts ${statusLabel ? `[${statusLabel}]` : ""}`}
-        className={`flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl border shadow-md backdrop-blur-sm transition-all hover:scale-105 select-none w-16 sm:w-20 md:w-24 ${badgeClass}`}
-      >
-        <div className="flex items-center gap-1 w-full justify-between">
-          <span className="text-[9px] sm:text-[10px] font-mono opacity-80">{p.position}</span>
-          {statusEmoji && <span className="text-[10px]" title={statusLabel}>{statusEmoji}</span>}
-        </div>
-        <span className="text-xs sm:text-sm font-black truncate max-w-full text-white text-center my-0.5">
-          {p.name}
-        </span>
-        <div className="flex items-center justify-between w-full pt-1 border-t border-white/10 text-[10px] sm:text-xs">
-          <span className="font-mono font-bold text-amber-300">{p.points} pts</span>
-          {p.isCaptain && (
-            <span className="px-1 py-0.2 bg-amber-500 text-slate-950 font-black text-[9px] rounded">
-              {p.multiplier === 3 ? "TC" : "C"}
-            </span>
-          )}
-          {p.isViceCaptain && !p.isCaptain && (
-            <span className="px-1 py-0.2 bg-slate-700 text-slate-300 font-bold text-[9px] rounded">
-              VC
-            </span>
-          )}
-        </div>
-      </div>
-    );
+  buyPlayer: {
+    id: number;
+    name: string;
+    team: string;
+    cost: number;
+    form: number;
+    type: number;
+    selectedBy: string;
   };
-
-  const borderColor = themeColor === "emerald" ? "border-emerald-500/30" : "border-rose-500/30";
-  const headerBg = themeColor === "emerald" ? "bg-emerald-950/40 text-emerald-300" : "bg-rose-950/40 text-rose-300";
-
-  return (
-    <div className={`rounded-2xl border ${borderColor} bg-slate-900/60 p-4 space-y-4 shadow-xl flex flex-col justify-between`}>
-      {/* Pitch Header */}
-      <div className={`flex items-center justify-between p-3 rounded-xl border ${borderColor} ${headerBg}`}>
-        <div>
-          <span className="text-[10px] uppercase font-mono tracking-wider opacity-80 block">{title}</span>
-          <h4 className="font-black text-sm sm:text-base text-white">{manager.teamName}</h4>
-          <span className="text-xs opacity-90">{manager.managerName}</span>
-        </div>
-        <div className="text-right">
-          <span className="text-[10px] uppercase font-mono tracking-wider opacity-80 block">Starting XI</span>
-          <div className="text-base sm:text-lg font-black font-mono text-amber-400">
-            {manager.totalStartingPoints} pts
-          </div>
-          <span className="text-[10px] font-mono opacity-80">Formation: {manager.formation}</span>
-        </div>
-      </div>
-
-      {/* Visual Football Pitch */}
-      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-b from-emerald-900 via-emerald-950 to-emerald-900 border border-emerald-700/40 p-4 sm:p-6 shadow-inner min-h-[380px] flex flex-col justify-between">
-        {/* Pitch markings background */}
-        <div className="absolute inset-0 pointer-events-none opacity-20 flex flex-col justify-between p-4">
-          <div className="w-full h-1/2 border-b border-dashed border-emerald-300/40 relative">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 rounded-full border border-emerald-300/40"></div>
-          </div>
-          <div className="w-full h-1/2"></div>
-        </div>
-
-        {/* Forwards */}
-        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
-          {fwds.map(renderPlayerCard)}
-        </div>
-
-        {/* Midfielders */}
-        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
-          {mids.map(renderPlayerCard)}
-        </div>
-
-        {/* Defenders */}
-        <div className="relative z-10 flex justify-center gap-2 sm:gap-4">
-          {defs.map(renderPlayerCard)}
-        </div>
-
-        {/* Goalkeeper */}
-        <div className="relative z-10 flex justify-center">
-          {gkps.map(renderPlayerCard)}
-        </div>
-      </div>
-
-      {/* Bench Row */}
-      <div className="space-y-1.5 pt-2 border-t border-slate-800">
-        <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block">Substitutes Bench</span>
-        <div className="grid grid-cols-4 gap-2">
-          {bench.map((p) => (
-            <div
-              key={p.id}
-              className="bg-slate-950/80 border border-slate-800/80 rounded-lg p-2 text-center flex flex-col justify-between"
-            >
-              <div className="flex justify-between text-[9px] font-mono text-slate-400">
-                <span>{p.position}</span>
-                <span className="text-amber-400 font-bold">{p.points} pts</span>
-              </div>
-              <span className="text-xs font-semibold text-slate-200 truncate my-0.5">{p.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
+  formDelta: number;
+  costDelta: number;
 }
 
 export default function Home() {
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Filters
-  const [selectedPos, setSelectedPos] = useState<string>("ALL");
-  const [maxPrice, setMaxPrice] = useState<number>(15.0);
-  const [maxOwnership, setMaxOwnership] = useState<number>(10.0);
-  const [easyRunOnly, setEasyRunOnly] = useState<boolean>(false);
-
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>("form");
-  const [sortDir, setSortDir] = useState<SortDirection>("desc");
-
-  // User & Rival IDs
-  const [myTeamId, setMyTeamId] = useState("");
-  const [myManager, setMyManager] = useState<ManagerInfo | null>(null);
-
-  const [rivalTeamId, setRivalTeamId] = useState("");
-  const [rivalManager, setRivalManager] = useState<ManagerInfo | null>(null);
-
-  // Mini-League
   const [leagueId, setLeagueId] = useState("");
-  const [leagueName, setLeagueName] = useState("");
-  const [leagueRivals, setLeagueRivals] = useState<LeagueRival[]>([]);
-  const [loadingLeague, setLoadingLeague] = useState(false);
+  const [leagueName, setLeagueName] = useState<string | null>(null);
+  const [competitors, setCompetitors] = useState<Competitor[]>([]);
 
-  const [searching, setSearching] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [myId, setMyId] = useState("");
+  const [rivalId, setRivalId] = useState("");
+  const [gw, setGw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingLeague, setLoadingLeague] = useState(false);
+  const [loadingTransfers, setLoadingTransfers] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [duel, setDuel] = useState<DuelResponse | null>(null);
+  const [transfers, setTransfers] = useState<TransferRecommendation[]>([]);
 
   useEffect(() => {
-    fetch("/api/differentials")
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setPlayers(data);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-
-    const savedMyId = localStorage.getItem("fpl_my_team_id");
-    const savedRivalId = localStorage.getItem("fpl_rival_team_id");
+    const savedMyId = localStorage.getItem("fpl_my_id");
+    const savedRivalId = localStorage.getItem("fpl_rival_id");
     const savedLeagueId = localStorage.getItem("fpl_league_id");
 
-    if (savedMyId) {
-      setMyTeamId(savedMyId);
-      lookupManager(savedMyId, savedRivalId || "");
-    }
-    if (savedRivalId) {
-      setRivalTeamId(savedRivalId);
-    }
+    if (savedMyId) setMyId(savedMyId);
+    if (savedRivalId) setRivalId(savedRivalId);
     if (savedLeagueId) {
       setLeagueId(savedLeagueId);
-      fetchLeague(savedLeagueId);
+      loadLeague(savedLeagueId);
     }
   }, []);
 
-  const fetchLeague = async (id: string) => {
-    if (!id.trim()) return;
+  const loadLeague = async (idToFetch: string) => {
+    if (!idToFetch) return;
     setLoadingLeague(true);
+    setError(null);
+
     try {
-      const res = await fetch(`/api/league?leagueId=${id.trim()}`);
+      const res = await fetch(`/api/league?leagueId=${idToFetch}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "League not found");
+
       setLeagueName(data.leagueName);
-      setLeagueRivals(data.rivals || []);
-      localStorage.setItem("fpl_league_id", id.trim());
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to load league");
+      setCompetitors(data.standings);
+      localStorage.setItem("fpl_league_id", idToFetch);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error syncing league");
     } finally {
       setLoadingLeague(false);
     }
   };
 
-  const lookupManager = async (myId: string, rivalId: string) => {
-    if (!myId.trim()) return;
-    setSearching(true);
-    setErrorMsg("");
+  const handleLeagueSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadLeague(leagueId);
+  };
+
+  const fetchTransfers = async (id: string) => {
+    if (!id) return;
+    setLoadingTransfers(true);
+    try {
+      const res = await fetch(`/api/leapfrog?myId=${id}${gw ? `&gw=${gw}` : ""}`);
+      const data = await res.json();
+      if (res.ok) setTransfers(data.recommendations || []);
+    } catch {
+      // Background pass
+    } finally {
+      setLoadingTransfers(false);
+    }
+  };
+
+  const fetchDuel = async (targetMyId = myId, targetRivalId = rivalId) => {
+    if (!targetMyId || !targetRivalId) {
+      setError("Please provide both Your Team ID and Rival Team ID");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    localStorage.setItem("fpl_my_id", targetMyId);
+    localStorage.setItem("fpl_rival_id", targetRivalId);
 
     try {
-      const myRes = await fetch(`/api/manager?teamId=${myId.trim()}`);
-      const myData = await myRes.json();
-      if (!myRes.ok) throw new Error(myData.error || "Your team ID was not found");
-      setMyManager(myData);
-      localStorage.setItem("fpl_my_team_id", myId.trim());
+      const url = `/api/manager?myId=${targetMyId}&rivalId=${targetRivalId}${gw ? `&gw=${gw}` : ""}`;
+      const res = await fetch(url);
+      const data = await res.json();
 
-      if (rivalId.trim()) {
-        const rivalRes = await fetch(`/api/manager?teamId=${rivalId.trim()}`);
-        const rivalData = await rivalRes.json();
-        if (!rivalRes.ok) throw new Error(rivalData.error || "Rival team ID was not found");
-        setRivalManager(rivalData);
-        localStorage.setItem("fpl_rival_team_id", rivalId.trim());
-      } else {
-        setRivalManager(null);
-        localStorage.removeItem("fpl_rival_team_id");
-      }
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to fetch squads");
+      if (!res.ok) throw new Error(data.error || "Failed to fetch tactical data");
+      setDuel(data);
+      fetchTransfers(targetMyId);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error connecting to FPL API");
     } finally {
-      setSearching(false);
+      setLoading(false);
     }
   };
 
-  const handleCompare = (e: React.FormEvent) => {
-    e.preventDefault();
-    lookupManager(myTeamId, rivalTeamId);
-  };
+  const renderPitchLines = (picks: EnrichedLivePick[]) => {
+    const starters = picks.filter((p) => p.position <= 11);
+    const bench = picks.filter((p) => p.position > 11);
 
-  const handleSelectRival = (selectedId: string) => {
-    setRivalTeamId(selectedId);
-    lookupManager(myTeamId, selectedId);
-  };
+    const gks = starters.filter((p) => p.type === 1);
+    const defs = starters.filter((p) => p.type === 2);
+    const mids = starters.filter((p) => p.type === 3);
+    const fwds = starters.filter((p) => p.type === 4);
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDir("desc");
-    }
-  };
-
-  const filteredPlayers = useMemo(() => {
-    return players
-      .filter((p) => {
-        const matchesPos = selectedPos === "ALL" || p.position === selectedPos;
-        const matchesPrice = p.costRaw <= maxPrice;
-        const matchesOwnership = p.ownershipRaw <= maxOwnership;
-        const matchesEasy =
-          !easyRunOnly ||
-          (p.nextFixtures.length > 0 &&
-            p.nextFixtures.every((f) => f.difficulty <= 3));
-
-        return matchesPos && matchesPrice && matchesOwnership && matchesEasy;
-      })
-      .sort((a, b) => {
-        let valA: number | string = 0;
-        let valB: number | string = 0;
-
-        if (sortField === "name") {
-          valA = a.name.toLowerCase();
-          valB = b.name.toLowerCase();
-          return sortDir === "asc"
-            ? (valA as string).localeCompare(valB as string)
-            : (valB as string).localeCompare(valA as string);
-        }
-
-        if (sortField === "costRaw") {
-          valA = a.costRaw;
-          valB = b.costRaw;
-        } else if (sortField === "form") {
-          valA = parseFloat(a.form) || 0;
-          valB = parseFloat(b.form) || 0;
-        } else if (sortField === "xG") {
-          valA = parseFloat(a.xG) || 0;
-          valB = parseFloat(b.xG) || 0;
-        } else if (sortField === "xA") {
-          valA = parseFloat(a.xA) || 0;
-          valB = parseFloat(b.xA) || 0;
-        } else if (sortField === "ownershipRaw") {
-          valA = a.ownershipRaw;
-          valB = b.ownershipRaw;
-        }
-
-        return sortDir === "asc"
-          ? (valA as number) - (valB as number)
-          : (valB as number) - (valA as number);
-      });
-  }, [players, selectedPos, maxPrice, maxOwnership, easyRunOnly, sortField, sortDir]);
-
-  const leapfrogCount = useMemo(() => {
-    if (!rivalManager || !myManager) return 0;
-    return filteredPlayers.filter(
-      (p) => !myManager.ownedPlayerIds.includes(p.id) && !rivalManager.ownedPlayerIds.includes(p.id)
-    ).length;
-  }, [filteredPlayers, myManager, rivalManager]);
-
-  // Pitch Duel Summary Stats
-  const pitchDuelStats = useMemo(() => {
-    if (!myManager || !rivalManager || !myManager.startingXI || !rivalManager.startingXI) {
-      return { sharedCount: 0, differentialCount: 0, pointsSwing: 0 };
-    }
-    const myIds = new Set(myManager.startingXI.map((p) => p.id));
-    const rivalIds = new Set(rivalManager.startingXI.map((p) => p.id));
-
-    let sharedCount = 0;
-    myManager.startingXI.forEach((p) => {
-      if (rivalIds.has(p.id)) sharedCount++;
-    });
-
-    const differentialCount = (myManager.startingXI.length - sharedCount) + (rivalManager.startingXI.length - sharedCount);
-    const pointsSwing = myManager.totalStartingPoints - rivalManager.totalStartingPoints;
-
-    return { sharedCount, differentialCount, pointsSwing };
-  }, [myManager, rivalManager]);
-
-  // Leapfrog Transfer Engine Recommendations Calculation
-  const transferRecommendations = useMemo(() => {
-    if (!myManager) return [];
-
-    const squadIds = new Set([
-      ...(myManager.startingXI || []).map((p) => p.id),
-      ...(myManager.bench || []).map((p) => p.id),
-    ]);
-
-    const bank = myManager.bank || 0;
-    const rivalOwnedIds = new Set(rivalManager?.ownedPlayerIds || []);
-    const leagueRivalOwnedIds = new Set<number>();
-    leagueRivals.forEach((r) => {
-      if (r.ownedPlayerIds) {
-        r.ownedPlayerIds.forEach((id) => leagueRivalOwnedIds.add(id));
-      }
-    });
-
-    // 1. Identify sell candidates in user squad (form < 3.5 or tough fixtures max >= 4)
-    const squadPlayers = players.filter((p) => squadIds.has(p.id));
-    const sellCandidates = squadPlayers.filter((p) => {
-      const formNum = parseFloat(p.form) || 0;
-      const maxFdr = p.nextFixtures.length > 0 ? Math.max(...p.nextFixtures.map((f) => f.difficulty)) : 0;
-      return formNum < 3.5 || maxFdr >= 4;
-    });
-
-    const evaluatedSwaps: Array<{
-      sell: Player;
-      buy: Player;
-      score: number;
-      formDelta: number;
-      bankAfter: number;
-      netImpactBadges: string[];
-    }> = [];
-
-    for (const sell of sellCandidates) {
-      // Find valid replacements in same position
-      const candidates = players.filter((p) => {
-        if (p.position !== sell.position) return false;
-        if (squadIds.has(p.id)) return false;
-        if (rivalOwnedIds.has(p.id)) return false;
-        if (leagueRivalOwnedIds.has(p.id)) return false;
-
-        // Budget check
-        const costAllowed = sell.costRaw + bank;
-        if (p.costRaw > costAllowed) return false;
-
-        // Favorable 3-gw FDR (avg <= 2.6)
-        if (p.nextFixtures.length === 0) return false;
-        const avgFdr = p.nextFixtures.reduce((sum, f) => sum + f.difficulty, 0) / p.nextFixtures.length;
-        if (avgFdr > 2.6) return false;
-
-        // Form momentum check: buy form > sell form
-        const sellForm = parseFloat(sell.form) || 0;
-        const buyForm = parseFloat(p.form) || 0;
-        if (buyForm <= sellForm) return false;
-
-        return true;
-      });
-
-      for (const buy of candidates) {
-        const sellForm = parseFloat(sell.form) || 0;
-        const buyForm = parseFloat(buy.form) || 0;
-        const formDelta = buyForm - sellForm;
-        const bankAfter = sell.costRaw + bank - buy.costRaw;
-
-        const score = formDelta * 3 + (parseFloat(buy.xG) + parseFloat(buy.xA)) * 2 - (buy.ownershipRaw * 0.1);
-
-        const badges: string[] = [];
-        badges.push(`+${formDelta.toFixed(1)} Form Delta`);
-        if (buy.ownershipRaw < 5) {
-          badges.push("⚡ Ultra Differential (<5%)");
-        } else {
-          badges.push("Unowned by Rivals");
-        }
-        badges.push(`Leaves £${bankAfter.toFixed(1)}m in bank`);
-
-        evaluatedSwaps.push({
-          sell,
-          buy,
-          score,
-          formDelta,
-          bankAfter,
-          netImpactBadges: badges,
-        });
-      }
-    }
-
-    evaluatedSwaps.sort((a, b) => b.score - a.score);
-
-    const seenSells = new Set<number>();
-    const seenBuys = new Set<number>();
-    const topSwaps = [];
-
-    for (const swap of evaluatedSwaps) {
-      if (!seenSells.has(swap.sell.id) && !seenBuys.has(swap.buy.id)) {
-        seenSells.add(swap.sell.id);
-        seenBuys.add(swap.buy.id);
-        topSwaps.push(swap);
-        if (topSwaps.length >= 3) break;
-      }
-    }
-
-    return topSwaps;
-  }, [myManager, rivalManager, leagueRivals, players]);
-
-  const renderSortIndicator = (field: SortField) => {
-    if (sortField !== field) return <span className="text-slate-600 ml-1">↕</span>;
-    return sortDir === "asc" ? (
-      <span className="text-emerald-400 ml-1 font-bold">↑</span>
-    ) : (
-      <span className="text-emerald-400 ml-1 font-bold">↓</span>
+    return (
+      <div className="flex flex-col justify-between h-full space-y-4">
+        <div className="flex justify-around items-center">{renderLine(gks)}</div>
+        <div className="flex justify-around items-center">{renderLine(defs)}</div>
+        <div className="flex justify-around items-center">{renderLine(mids)}</div>
+        <div className="flex justify-around items-center">{renderLine(fwds)}</div>
+        <div className="border-t border-slate-700/60 pt-3 mt-4">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2 text-center">Substitutes</div>
+          <div className="flex justify-around items-center">{renderLine(bench, true)}</div>
+        </div>
+      </div>
     );
   };
 
-  const isCaptainShielded =
-    myManager?.captain &&
-    rivalManager?.captain &&
-    myManager.captain.id === rivalManager.captain.id;
+  const renderLine = (players: EnrichedLivePick[], isBench = false) => {
+    return players.map((p) => {
+      const roleStyles = {
+        SHIELD: "border-emerald-500/80 bg-emerald-950/30 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]",
+        WEAPON: "border-cyan-500/80 bg-cyan-950/30 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.15)]",
+        RIVAL_DANGER: "border-rose-500/80 bg-rose-950/30 text-rose-300 shadow-[0_0_12px_rgba(244,63,94,0.15)]",
+      }[p.duelRole];
 
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 md:p-12 font-sans antialiased">
-      <div className="max-w-6xl mx-auto space-y-6 md:space-y-8">
-        
-        {/* Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-800/80 pb-6">
-          <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold rounded-full mb-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-              Live FPL Sync
-            </div>
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-white">
-              Rival Spy & Differential Radar
-            </h1>
-            <p className="text-slate-400 text-xs sm:text-sm mt-1">
-              Scout differential transfers and track mini-league rivals before deadline.
-            </p>
-          </div>
-
-          {/* Quick Metrics Bar */}
-          <div className="flex gap-2">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-center min-w-[76px]">
-              <span className="text-[10px] text-slate-400 block uppercase font-mono tracking-wider">Targets</span>
-              <strong className="text-sm md:text-base font-black text-white">{filteredPlayers.length}</strong>
-            </div>
-            {rivalManager && (
-              <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl px-3.5 py-2 text-center min-w-[76px]">
-                <span className="text-[10px] text-amber-300/80 block uppercase font-mono tracking-wider">Leapfrog</span>
-                <strong className="text-sm md:text-base font-black text-amber-400">{leapfrogCount}</strong>
-              </div>
+      return (
+        <div
+          key={p.element}
+          className={`flex flex-col items-center justify-center p-2 rounded-lg border backdrop-blur-md transition-all duration-200 min-w-[76px] sm:min-w-[90px] ${roleStyles} ${
+            isBench ? "opacity-60 scale-90" : ""
+          }`}
+        >
+          <div className="flex items-center space-x-1">
+            <span className="text-xs font-bold tracking-tight truncate max-w-[65px]">{p.name}</span>
+            {p.is_captain && (
+              <span className="text-[9px] font-black bg-amber-500 text-black px-1 rounded-sm">C</span>
+            )}
+            {p.is_vice_captain && (
+              <span className="text-[9px] font-black bg-slate-500 text-white px-1 rounded-sm">V</span>
             )}
           </div>
-        </header>
 
-        {/* Mini-League Sync Bar */}
-        <div className="p-4 rounded-2xl border border-slate-800/90 bg-slate-900/50 backdrop-blur shadow-lg flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+          <div className="flex items-center justify-between w-full mt-1.5 px-1">
+            <span className="text-[11px] font-black font-mono text-white bg-black/40 px-1.5 py-0.5 rounded border border-white/10">
+              {p.effectivePoints} pts
+            </span>
+            <span className="text-[10px] text-slate-400 font-mono">£{p.cost.toFixed(1)}</span>
+          </div>
+        </div>
+      );
+    });
+  };
+
+  const myStarters = duel?.myTeam.picks.filter((p) => p.position <= 11) ?? [];
+  const rivalStarters = duel?.rivalTeam.picks.filter((p) => p.position <= 11) ?? [];
+  const shieldsCount = myStarters.filter((p) => p.duelRole === "SHIELD").length;
+  const weaponsCount = myStarters.filter((p) => p.duelRole === "WEAPON").length;
+  const dangerCount = rivalStarters.filter((p) => p.duelRole === "RIVAL_DANGER").length;
+
+  const myCaptain = duel?.myTeam.picks.find((p) => p.is_captain);
+  const rivalCaptain = duel?.rivalTeam.picks.find((p) => p.is_captain);
+  const isCaptainNeutralized = myCaptain && rivalCaptain && myCaptain.element === rivalCaptain.element;
+
+  // Calculate chip advantage
+  const myAvailableChips = duel?.myTeam.chipsInventory.filter((c) => c.isAvailable).length ?? 0;
+  const rivalAvailableChips = duel?.rivalTeam.chipsInventory.filter((c) => c.isAvailable).length ?? 0;
+  const chipAdvantage = myAvailableChips - rivalAvailableChips;
+
+  return (
+    <main className="min-h-screen bg-[#070B11] text-slate-100 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+      {/* Header */}
+      <header className="w-full max-w-7xl flex flex-col md:flex-row items-center justify-between gap-4 pb-6 border-b border-slate-800">
+        <div>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-300 whitespace-nowrap">🏆 Mini-League ID:</span>
-            <input
-              type="text"
-              placeholder="e.g. 56789"
-              value={leagueId}
-              onChange={(e) => setLeagueId(e.target.value)}
-              className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700/80 text-xs font-mono text-white focus:outline-none focus:border-amber-400 w-28 md:w-36"
-            />
-            <button
-              onClick={() => fetchLeague(leagueId)}
-              disabled={loadingLeague}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all disabled:opacity-50 active:scale-95 shadow-sm"
-            >
-              {loadingLeague ? "Syncing..." : "Sync League"}
-            </button>
+            <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+            <h1 className="text-xl sm:text-2xl font-black tracking-wider uppercase text-white">
+              FPL Rival Spy <span className="text-cyan-400 text-sm font-mono font-medium">/// HUD v1.0</span>
+            </h1>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Head-to-head mini-league reconnaissance and tactical pitch duel</p>
+        </div>
+
+        {/* Mini-League Sync */}
+        <form onSubmit={handleLeagueSubmit} className="flex items-center gap-2 bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+          <input
+            type="number"
+            placeholder="Mini-League ID"
+            value={leagueId}
+            onChange={(e) => setLeagueId(e.target.value)}
+            className="w-36 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-md text-xs font-mono focus:border-cyan-400 outline-none"
+            required
+          />
+          <button
+            type="submit"
+            disabled={loadingLeague}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-300 font-bold text-xs uppercase tracking-wider rounded-md transition-all border border-slate-700"
+          >
+            {loadingLeague ? "Syncing..." : "Sync League"}
+          </button>
+        </form>
+      </header>
+
+      {/* Manual Input Controls */}
+      <div className="w-full max-w-7xl mt-4 p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-400 mr-1">Direct Matchup:</span>
+          <input
+            type="number"
+            placeholder="Your Team ID"
+            value={myId}
+            onChange={(e) => setMyId(e.target.value)}
+            className="w-32 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-md text-xs font-mono focus:border-cyan-400 outline-none"
+          />
+          <input
+            type="number"
+            placeholder="Rival Team ID"
+            value={rivalId}
+            onChange={(e) => setRivalId(e.target.value)}
+            className="w-32 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-md text-xs font-mono focus:border-rose-400 outline-none"
+          />
+          <input
+            type="number"
+            placeholder="GW (Opt)"
+            value={gw}
+            onChange={(e) => setGw(e.target.value)}
+            className="w-20 px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-md text-xs font-mono focus:border-slate-500 outline-none"
+          />
+          <button
+            onClick={() => fetchDuel()}
+            disabled={loading || !myId || !rivalId}
+            className="px-4 py-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-md transition-all"
+          >
+            {loading ? "Scanning..." : "Launch Duel"}
+          </button>
+        </div>
+
+        <button
+          onClick={() => {
+            setMyId("12345");
+            setRivalId("67890");
+            fetchDuel("12345", "67890");
+          }}
+          className="text-[11px] text-cyan-400 hover:text-cyan-300 font-mono underline"
+        >
+          Load Demo IDs
+        </button>
+      </div>
+
+      {/* Synced Competitors Bar */}
+      {competitors.length > 0 && (
+        <div className="w-full max-w-7xl mt-4 p-4 bg-slate-900/60 border border-cyan-900/30 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+          <div>
+            <span className="text-[10px] text-cyan-400 uppercase font-semibold tracking-wider">Synced League</span>
+            <h2 className="text-sm font-bold text-white">{leagueName} ({competitors.length} Managers)</h2>
           </div>
 
-          {leagueRivals.length > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <span className="text-xs text-slate-400">Rival ({leagueName}):</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <label className="block text-[10px] uppercase font-semibold text-slate-400 mb-1">Your Team</label>
               <select
-                value={rivalTeamId}
-                onChange={(e) => handleSelectRival(e.target.value)}
-                className="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-rose-300 font-semibold focus:outline-none focus:border-rose-500 cursor-pointer"
+                value={myId}
+                onChange={(e) => {
+                  setMyId(e.target.value);
+                  if (rivalId) fetchDuel(e.target.value, rivalId);
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-md text-xs px-2 py-1.5 text-cyan-300 outline-none focus:border-cyan-400"
               >
-                <option value="">-- Pick Mini-League Rival --</option>
-                {leagueRivals.map((r) => (
-                  <option key={r.entry} value={r.entry}>
-                    #{r.rank} {r.player_name} ({r.entry_name}) • {r.total} pts
+                <option value="">Select Your Team</option>
+                {competitors.map((c) => (
+                  <option key={c.entry} value={c.entry}>
+                    #{c.rank} {c.managerName} ({c.teamName}) - {c.totalPoints} pts
                   </option>
                 ))}
               </select>
             </div>
-          )}
-        </div>
 
-        {/* Manager Input */}
-        <div className="p-4 sm:p-5 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl space-y-4">
-          <form onSubmit={handleCompare} className="grid grid-cols-1 md:grid-cols-5 gap-3 md:gap-4 items-end">
-            <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Your FPL Team ID</label>
-              <input
-                type="text"
-                placeholder="e.g. 123456"
-                value={myTeamId}
-                onChange={(e) => setMyTeamId(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm focus:outline-none focus:border-emerald-500 text-white font-mono"
-              />
-            </div>
-
-            <div className="md:col-span-2 space-y-1">
-              <label className="text-xs font-semibold text-slate-300">Rival's Team ID (Or select above)</label>
-              <input
-                type="text"
-                placeholder="e.g. 987654"
-                value={rivalTeamId}
-                onChange={(e) => setRivalTeamId(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-lg bg-slate-950 border border-slate-700 text-sm focus:outline-none focus:border-rose-500 text-white font-mono"
-              />
-            </div>
-
-            <div className="md:col-span-1">
-              <button
-                type="submit"
-                disabled={searching}
-                className="w-full py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-sm transition-all disabled:opacity-50 active:scale-95 shadow-md shadow-emerald-500/20"
+            <div>
+              <label className="block text-[10px] uppercase font-semibold text-slate-400 mb-1">Target Rival</label>
+              <select
+                value={rivalId}
+                onChange={(e) => {
+                  setRivalId(e.target.value);
+                  if (myId) fetchDuel(myId, e.target.value);
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-md text-xs px-2 py-1.5 text-rose-300 outline-none focus:border-rose-400"
               >
-                {searching ? "Spying..." : "Compare"}
-              </button>
+                <option value="">Select Target Rival</option>
+                {competitors.map((c) => (
+                  <option key={c.entry} value={c.entry}>
+                    #{c.rank} {c.managerName} ({c.teamName}) - {c.totalPoints} pts
+                  </option>
+                ))}
+              </select>
             </div>
-          </form>
 
-          {/* Captaincy Clash Indicator */}
-          {myManager && rivalManager && myManager.captain && rivalManager.captain && (
-            <div
-              className={`p-3.5 rounded-xl border text-xs flex items-center justify-between transition-all ${
-                isCaptainShielded
-                  ? "bg-slate-900 border-slate-700 text-slate-300"
-                  : "bg-amber-950/30 border-amber-500/40 text-amber-200"
-              }`}
+            <button
+              onClick={() => fetchDuel()}
+              disabled={!myId || !rivalId || loading}
+              className="px-4 py-1.5 bg-cyan-500 hover:bg-cyan-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold text-xs uppercase tracking-wider rounded-md transition-all self-end"
             >
-              <div className="flex items-center gap-3">
-                <span className="text-lg">{isCaptainShielded ? "🛡️" : "⚔️"}</span>
-                <div>
-                  <strong className="block font-bold">
-                    {isCaptainShielded ? "Armband Shielded" : "Captaincy Clash Active"}
-                  </strong>
-                  <span className="text-slate-400">
-                    {isCaptainShielded
-                      ? `Both managers picked ${myManager.captain.name} (C). Net swing: 0 pts.`
-                      : `You backed ${myManager.captain.name} (C) vs Rival's ${rivalManager.captain.name} (C). Rank swing gameweek!`}
-                  </span>
+              {loading ? "Scanning..." : "Duel Rival"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="w-full max-w-7xl mt-4 p-3 bg-rose-950/40 border border-rose-500/50 rounded-lg text-rose-300 text-xs">
+          [Alert] {error}
+        </div>
+      )}
+
+      {!duel && !loading && (
+        <div className="w-full max-w-7xl mt-12 flex flex-col items-center justify-center p-12 border border-dashed border-slate-800 rounded-2xl bg-slate-950/30 text-center">
+          <div className="w-12 h-12 rounded-full bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-xl font-bold mb-4">
+            ⚽
+          </div>
+          <h2 className="text-lg font-bold text-white mb-2">No Active Pitch Duel</h2>
+          <p className="text-xs text-slate-400 max-w-md mb-6 leading-relaxed">
+            Enter a Mini-League ID in the top right to load your competitors, or input two direct FPL Team IDs above to compare Starting XIs, armbands, and differential point threats.
+          </p>
+          <div className="flex gap-4 text-xs font-mono">
+            <span className="text-emerald-400">🟢 Shared Shield</span>
+            <span className="text-cyan-400">🔵 Your Weapon</span>
+            <span className="text-rose-400">🔴 Rival Danger</span>
+          </div>
+        </div>
+      )}
+
+      {/* Duel Arena */}
+      {duel && (
+        <div className="w-full max-w-7xl mt-6 space-y-6">
+          {/* Live Net Score Swing Header */}
+          <div className="p-4 bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div>
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Live Gameweek Net Swing</span>
+              <div className="flex items-center gap-3 mt-1">
+                <span className={`text-2xl sm:text-3xl font-black font-mono ${
+                  duel.netDelta >= 0 ? "text-emerald-400" : "text-rose-400"
+                }`}>
+                  {duel.netDelta >= 0 ? `+${duel.netDelta}` : duel.netDelta} pts
+                </span>
+                <span className="text-xs text-slate-400 font-mono">
+                  ({duel.myTeam.liveTotal} pts vs {duel.rivalTeam.liveTotal} pts)
+                </span>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-center font-mono">
+                <span className="text-[9px] uppercase text-slate-400 block">Your Points</span>
+                <span className="text-sm font-bold text-cyan-400">{duel.myTeam.liveTotal}</span>
+              </div>
+              <div className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-center font-mono">
+                <span className="text-[9px] uppercase text-slate-400 block">Rival Points</span>
+                <span className="text-sm font-bold text-rose-400">{duel.rivalTeam.liveTotal}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Chip Recon Arsenal Card */}
+          <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-2xl">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-white">Chip Recon Arsenal</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                  chipAdvantage > 0
+                    ? "bg-emerald-950 text-emerald-300 border border-emerald-500/30"
+                    : chipAdvantage < 0
+                    ? "bg-rose-950 text-rose-300 border border-rose-500/30"
+                    : "bg-slate-800 text-slate-300 border border-slate-700"
+                }`}>
+                  {chipAdvantage > 0 ? `+${chipAdvantage} Chip Leverage` : chipAdvantage < 0 ? `${chipAdvantage} Chip Deficit` : "Equal Chip Parity"}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                Double / Blank GW Tactical Readiness
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* My Chips */}
+              <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                <div className="text-[11px] font-bold text-cyan-400 uppercase tracking-wide mb-2 flex justify-between">
+                  <span>Your Chip Inventory</span>
+                  <span className="text-slate-400 font-mono">{myAvailableChips} Remaining</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {duel.myTeam.chipsInventory.map((chip) => (
+                    <div
+                      key={chip.key}
+                      className={`p-2 rounded-lg border text-center font-mono ${
+                        chip.isAvailable
+                          ? "bg-emerald-950/30 border-emerald-500/40 text-emerald-300"
+                          : "bg-slate-900/40 border-slate-800/80 text-slate-500 line-through opacity-70"
+                      }`}
+                    >
+                      <div className="text-[10px] font-bold truncate">{chip.name}</div>
+                      <div className="text-[9px] mt-0.5">
+                        {chip.isAvailable ? "READY" : `Used GW${chip.playedEvent}`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rival Chips */}
+              <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wide mb-2 flex justify-between">
+                  <span>Rival Chip Inventory</span>
+                  <span className="text-slate-400 font-mono">{rivalAvailableChips} Remaining</span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {duel.rivalTeam.chipsInventory.map((chip) => (
+                    <div
+                      key={chip.key}
+                      className={`p-2 rounded-lg border text-center font-mono ${
+                        chip.isAvailable
+                          ? "bg-amber-950/30 border-amber-500/40 text-amber-300"
+                          : "bg-slate-900/40 border-slate-800/80 text-slate-500 line-through opacity-70"
+                      }`}
+                    >
+                      <div className="text-[10px] font-bold truncate">{chip.name}</div>
+                      <div className="text-[9px] mt-0.5">
+                        {chip.isAvailable ? "THREAT" : `Used GW${chip.playedEvent}`}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          )}
+          </div>
 
-          {/* Manager Meta Details */}
-          {(myManager || rivalManager || errorMsg) && (
-            <div className="pt-3 border-t border-slate-800 flex flex-wrap gap-3 text-xs">
-              {myManager && (
-                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
-                  <span className="text-slate-400">You:</span>
-                  <strong className="text-emerald-400">{myManager.teamName}</strong>
-                  {myManager.captain && (
-                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
-                      (C) {myManager.captain.name}
-                    </span>
-                  )}
-                </div>
-              )}
-              {rivalManager && (
-                <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center gap-2">
-                  <span className="text-slate-400">Rival:</span>
-                  <strong className="text-rose-400">{rivalManager.teamName}</strong>
-                  {rivalManager.captain && (
-                    <span className="bg-rose-950 text-rose-300 border border-rose-700/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
-                      (C) {rivalManager.captain.name}
-                    </span>
-                  )}
-                </div>
-              )}
-              {errorMsg && <p className="text-rose-400 font-semibold self-center">{errorMsg}</p>}
+          {/* Tactical Intel Header */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+              <span className="text-[10px] text-slate-400 uppercase font-semibold">Active Gameweek</span>
+              <p className="text-xl font-black font-mono text-cyan-400">GW {duel.gameweek}</p>
             </div>
-          )}
-        </div>
+            <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+              <span className="text-[10px] text-emerald-400 uppercase font-semibold">Shared Shields</span>
+              <p className="text-xl font-black font-mono text-emerald-400">{shieldsCount} Neutral</p>
+            </div>
+            <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+              <span className="text-[10px] text-cyan-400 uppercase font-semibold">Your Weapons</span>
+              <p className="text-xl font-black font-mono text-cyan-400">{weaponsCount} Differentials</p>
+            </div>
+            <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+              <span className="text-[10px] text-rose-400 uppercase font-semibold">Rival Danger</span>
+              <p className="text-xl font-black font-mono text-rose-400">{dangerCount} Threats</p>
+            </div>
+          </div>
 
-        {/* Rival Recon Card */}
-        <div className="p-5 rounded-2xl border border-rose-500/30 bg-gradient-to-br from-slate-900 via-slate-900/90 to-rose-950/20 shadow-2xl relative overflow-hidden space-y-4">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/5 rounded-full blur-3xl pointer-events-none"></div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+          {/* Armband Clash Banner */}
+          <div className={`p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+            isCaptainNeutralized 
+              ? "bg-emerald-950/20 border-emerald-500/40" 
+              : "bg-rose-950/20 border-rose-500/40"
+          }`}>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 text-lg shadow-inner">
-                🕵️‍♂️
+              <div className="p-2 rounded-lg bg-black/40 font-black text-amber-400 text-sm border border-amber-400/30">
+                CAPTAINCY
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
-                    Rival Recon Card
-                  </h3>
-                  <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold rounded-full border border-rose-500/30">
-                    INTEL
-                  </span>
-                </div>
+                <p className="text-sm font-bold text-white">
+                  {isCaptainNeutralized ? "Armband Neutralized (Shared Shield)" : "High Volatility Armband Duel"}
+                </p>
                 <p className="text-xs text-slate-400">
-                  {rivalManager
-                    ? `Tracking ${rivalManager.teamName} (${rivalManager.managerName})`
-                    : "No rival loaded. Enter a rival ID or select from mini-league above."}
+                  You: <span className="font-semibold text-cyan-300">{myCaptain?.name || "N/A"} ({myCaptain?.effectivePoints} pts)</span> vs Rival: <span className="font-semibold text-rose-300">{rivalCaptain?.name || "N/A"} ({rivalCaptain?.effectivePoints} pts)</span>
                 </p>
               </div>
             </div>
-
-            {rivalManager && rivalTeamId && (
-              <div className="text-right font-mono text-xs text-slate-400 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800">
-                Team ID: <strong className="text-rose-400">{rivalTeamId}</strong>
-              </div>
-            )}
+            <div className="text-xs font-mono px-3 py-1 rounded bg-black/50 border border-slate-700 text-slate-300">
+              {isCaptainNeutralized ? "0 Pt Swing Delta" : "Active Volatility"}
+            </div>
           </div>
 
-          {rivalManager ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
-              {/* Financials & Value */}
-              <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3 flex flex-col justify-between">
-                <span className="text-[11px] uppercase tracking-wider font-mono text-slate-400">Squad Financials</span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-mono">Bank Balance</span>
-                    <strong className="text-base sm:text-lg font-black text-emerald-400 font-mono">
-                      £{rivalManager.bank?.toFixed(1)}m
-                    </strong>
-                  </div>
-                  <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                    <span className="text-[10px] text-slate-400 block font-mono">Team Value</span>
-                    <strong className="text-base sm:text-lg font-black text-indigo-400 font-mono">
-                      £{rivalManager.value?.toFixed(1)}m
-                    </strong>
-                  </div>
-                </div>
-                <div className="text-[11px] text-slate-500 italic">
-                  Active GW{rivalManager.activeGameweek || 1} deadline stats
-                </div>
-              </div>
-
-              {/* Remaining Chips */}
-              <div className="md:col-span-2 bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] uppercase tracking-wider font-mono text-slate-400">Remaining Chips Arsenal</span>
-                  <span className="text-[11px] text-slate-400">
-                    Season Quota: <strong className="text-white">2 per chip</strong>
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  {[
-                    {
-                      label: "Wildcard",
-                      code: "WC",
-                      icon: "🔄",
-                      left: rivalManager.chipsRemaining?.wildcard ?? 2,
-                    },
-                    {
-                      label: "Free Hit",
-                      code: "FH",
-                      icon: "⚡",
-                      left: rivalManager.chipsRemaining?.freehit ?? 2,
-                    },
-                    {
-                      label: "Triple Captain",
-                      code: "TC",
-                      icon: "⭐",
-                      left: rivalManager.chipsRemaining?.tripleCaptain ?? 2,
-                    },
-                    {
-                      label: "Bench Boost",
-                      code: "BB",
-                      icon: "🚀",
-                      left: rivalManager.chipsRemaining?.bboost ?? 2,
-                    },
-                  ].map((chip) => {
-                    const isAvailable = chip.left > 0;
-                    return (
-                      <div
-                        key={chip.code}
-                        className={`p-3 rounded-xl border flex flex-col items-center text-center transition-all ${
-                          isAvailable
-                            ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-300"
-                            : "bg-slate-900/50 border-slate-800 text-slate-500"
-                        }`}
-                      >
-                        <span className="text-base mb-1">{chip.icon}</span>
-                        <span className="text-[11px] font-bold text-white">{chip.label}</span>
-                        <span
-                          className={`text-xs font-mono font-black mt-1 px-2 py-0.5 rounded-full ${
-                            isAvailable
-                              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
-                              : "bg-slate-800 text-slate-400"
-                          }`}
-                        >
-                          {chip.left} left
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {rivalManager.chipsUsed && rivalManager.chipsUsed.length > 0 && (
-                  <div className="pt-2 border-t border-slate-800/80 flex flex-wrap gap-2 items-center text-xs">
-                    <span className="text-slate-400 text-[11px]">History Played:</span>
-                    {rivalManager.chipsUsed.map((c, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-300 font-mono text-[11px]"
-                      >
-                        {c.name.toUpperCase()} (GW{c.event})
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="py-8 text-center bg-slate-950/40 rounded-xl border border-slate-800/80 space-y-2">
-              <p className="text-slate-400 text-sm">
-                🔍 No rival team selected yet.
-              </p>
-              <p className="text-slate-500 text-xs">
-                Enter a rival Team ID above or sync a mini-league to view their chip inventory, bank, and team value.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Head-to-Head Visual Pitch Duel Section */}
-        {myManager && rivalManager && (
-          <div className="space-y-4">
-            {/* Top Banner Summary */}
-            <div className="p-4 rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg">
-                  ⚔️
-                </div>
+          {/* Pitches */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="flex flex-col bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 sm:p-5 relative overflow-hidden backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
                 <div>
-                  <h3 className="text-base font-black text-white tracking-tight">
-                    Head-to-Head Visual Pitch Duel
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    Direct Starting XI clash comparison & live gameweek swing analysis.
-                  </p>
+                  <h3 className="font-bold text-sm tracking-wide text-cyan-400 uppercase">Your Squad</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Bank: {duel.myTeam.bank.toFixed(1)}m | Active Chip: {duel.myTeam.chip || "None"}</p>
+                </div>
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="flex items-center gap-1 text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>Shield</span>
+                  <span className="flex items-center gap-1 text-cyan-400"><span className="w-2 h-2 rounded-full bg-cyan-500"></span>Weapon</span>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-3 items-center">
-                <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-center">
-                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Shared Shields</span>
-                  <strong className="text-sm font-black text-emerald-400 font-mono">{pitchDuelStats.sharedCount} / 11</strong>
-                </div>
-                <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800 text-center">
-                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Active Battles</span>
-                  <strong className="text-sm font-black text-sky-400 font-mono">{pitchDuelStats.differentialCount}</strong>
-                </div>
-                <div className="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800 text-center">
-                  <span className="text-[10px] uppercase font-mono text-slate-400 block">Net Points Swing</span>
-                  <strong
-                    className={`text-sm md:text-base font-black font-mono ${
-                      pitchDuelStats.pointsSwing >= 0 ? "text-emerald-400" : "text-rose-400"
-                    }`}
-                  >
-                    {pitchDuelStats.pointsSwing > 0 ? `+${pitchDuelStats.pointsSwing}` : pitchDuelStats.pointsSwing} pts
-                  </strong>
-                </div>
+              <div className="bg-gradient-to-b from-[#0a1510] to-[#0d1f17] rounded-xl p-4 sm:p-6 border border-emerald-950/60 shadow-inner flex-1 min-h-[460px]">
+                {renderPitchLines(duel.myTeam.picks)}
               </div>
             </div>
 
-            {/* Side-by-Side Visual Pitches */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <PitchView
-                manager={myManager}
-                otherManager={rivalManager}
-                title="Your Squad"
-                themeColor="emerald"
-              />
-              <PitchView
-                manager={rivalManager}
-                otherManager={myManager}
-                title="Rival Squad"
-                themeColor="rose"
-              />
+            <div className="flex flex-col bg-slate-900/40 border border-slate-800/80 rounded-2xl p-4 sm:p-5 relative overflow-hidden backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-800">
+                <div>
+                  <h3 className="font-bold text-sm tracking-wide text-rose-400 uppercase">Rival Recon Squad</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Bank: {duel.rivalTeam.bank.toFixed(1)}m | Active Chip: {duel.rivalTeam.chip || "None"}</p>
+                </div>
+                <div className="flex items-center gap-2 text-[10px]">
+                  <span className="flex items-center gap-1 text-emerald-400"><span className="w-2 h-2 rounded-full bg-emerald-500"></span>Shield</span>
+                  <span className="flex items-center gap-1 text-rose-400"><span className="w-2 h-2 rounded-full bg-rose-500"></span>Threat</span>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-b from-[#190a0d] to-[#240e13] rounded-xl p-4 sm:p-6 border border-rose-950/60 shadow-inner flex-1 min-h-[460px]">
+                {renderPitchLines(duel.rivalTeam.picks)}
+              </div>
             </div>
           </div>
-        )}
 
-        {/* ⚡ Leapfrog Transfer Engine Card */}
-        <div className="p-5 sm:p-6 rounded-2xl border border-amber-500/40 bg-gradient-to-br from-slate-900 via-slate-900/95 to-amber-950/20 shadow-2xl relative overflow-hidden space-y-5">
-          <div className="absolute top-0 right-0 w-72 h-72 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-xl shadow-inner">
-                ⚡
-              </div>
+          {/* Leapfrog Transfer Radar Section */}
+          <div className="p-5 bg-slate-900/40 border border-slate-800 rounded-2xl">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
-                    Leapfrog Transfer Engine
-                  </h3>
-                  <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold rounded-full border border-amber-500/30">
-                    AI RECOMMENDATIONS
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400">
-                  Algorithmic swaps targeting underperforming assets & unowned mini-league differential green runs.
+                <h3 className="text-sm font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                  <span>⚡ Leapfrog Differential Engine</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Automated replacement targets for squad underperformers based on your bank ({duel.myTeam.bank.toFixed(1)}m)
                 </p>
               </div>
+              {loadingTransfers && <span className="text-xs font-mono text-cyan-400 animate-pulse">Calculating radar...</span>}
             </div>
 
-            {myManager && (
-              <div className="text-right font-mono text-xs text-slate-400 bg-slate-950/80 px-3.5 py-2 rounded-xl border border-slate-800 flex items-center gap-3">
-                <span>Bank: <strong className="text-emerald-400 font-bold">£{myManager.bank?.toFixed(1)}m</strong></span>
-                <span>Swaps Found: <strong className="text-amber-400 font-bold">{transferRecommendations.length}</strong></span>
+            {transfers.length === 0 && !loadingTransfers ? (
+              <div className="text-xs text-slate-500 py-4 text-center border border-dashed border-slate-800 rounded-lg">
+                Squad in optimal form — no urgent differential swaps required.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {transfers.map((rec, i) => (
+                  <div key={i} className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-[11px] mb-2">
+                      <span className="text-rose-400 font-bold uppercase">Sell</span>
+                      <span className="text-emerald-400 font-bold uppercase">Buy Differential</span>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-white truncate max-w-[90px]">{rec.sellPlayer.name}</p>
+                        <p className="text-[10px] text-slate-500 font-mono">F: {rec.sellPlayer.form} | {rec.sellPlayer.cost}m</p>
+                      </div>
+
+                      <span className="text-slate-500 font-bold text-xs">➔</span>
+
+                      <div className="text-right">
+                        <p className="text-xs font-bold text-cyan-300 truncate max-w-[90px]">{rec.buyPlayer.name}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{rec.buyPlayer.team} | {rec.buyPlayer.cost}m</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-emerald-400 font-semibold">+{rec.formDelta} Form Delta</span>
+                      <span className="text-slate-400">{rec.buyPlayer.selectedBy}% Global EO</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-
-          {!myManager ? (
-            <div className="py-10 text-center bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
-              <div className="w-12 h-12 mx-auto rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-lg">
-                ⚡
-              </div>
-              <h4 className="text-sm font-bold text-white">Leapfrog Engine Awaiting Squad Sync</h4>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Enter your FPL Team ID above and click Compare to activate algorithmic transfer recommendations tailored to your squad and mini-league rivals.
-              </p>
-            </div>
-          ) : transferRecommendations.length === 0 ? (
-            <div className="py-10 text-center bg-slate-950/60 rounded-xl border border-slate-800 space-y-3">
-              <p className="text-sm font-bold text-slate-300">No urgent transfer recommendations found under current thresholds.</p>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Your current 15-player squad is performing well with favorable upcoming fixtures. Check back after gameweek deadline or adjust filters.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {transferRecommendations.map((rec, idx) => (
-                <div
-                  key={idx}
-                  className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-4 hover:border-amber-500/50 transition-all shadow-xl group"
-                >
-                  {/* Swap Header / Net Impact Badges */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-[11px] font-mono text-amber-400 bg-amber-950/30 px-2.5 py-1 rounded-lg border border-amber-500/30">
-                      <span>Recommendation #{idx + 1}</span>
-                      <span className="font-bold">⚡ Leapfrog Swap</span>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1">
-                      {rec.netImpactBadges.map((badge, bIdx) => (
-                        <span
-                          key={bIdx}
-                          className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-semibold rounded-md font-mono"
-                        >
-                          {badge}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* SELL & BUY Card Comparison */}
-                  <div className="space-y-3">
-                    {/* SELL */}
-                    <div className="bg-rose-950/20 border border-rose-500/30 rounded-xl p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-mono text-rose-400 font-bold uppercase tracking-wider text-[10px]">
-                          🔴 OUT (Sell)
-                        </span>
-                        <span className="text-slate-400 font-mono text-[10px]">
-                          {rec.sell.position} • £{rec.sell.price}m
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h5 className="font-black text-sm text-white">{rec.sell.name}</h5>
-                          <span className="text-[11px] text-slate-400">{rec.sell.team}</span>
-                        </div>
-                        <div className="text-right font-mono">
-                          <span className="text-[10px] text-slate-400 block">Form</span>
-                          <span className="text-sm font-bold text-rose-300">{rec.sell.form}</span>
-                        </div>
-                      </div>
-                      {/* Tough Fixtures */}
-                      <div className="pt-1.5 border-t border-rose-500/20 flex gap-1 items-center overflow-x-auto">
-                        <span className="text-[10px] text-slate-400 mr-1 whitespace-nowrap">Tough run:</span>
-                        {rec.sell.nextFixtures.slice(0, 2).map((f, fIdx) => (
-                          <FDRBadge key={fIdx} fixture={f} />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Arrow Divider */}
-                    <div className="flex justify-center -my-1 relative z-10">
-                      <span className="w-7 h-7 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center text-amber-400 text-xs shadow-md">
-                        ↓
-                      </span>
-                    </div>
-
-                    {/* BUY */}
-                    <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-xl p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-mono text-emerald-400 font-bold uppercase tracking-wider text-[10px]">
-                          🟢 IN (Differential Buy)
-                        </span>
-                        <span className="text-slate-400 font-mono text-[10px]">
-                          {rec.buy.position} • £{rec.buy.price}m ({rec.buy.ownership} owned)
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h5 className="font-black text-sm text-white">{rec.buy.name}</h5>
-                          <span className="text-[11px] text-slate-400">{rec.buy.team}</span>
-                        </div>
-                        <div className="text-right font-mono">
-                          <span className="text-[10px] text-slate-400 block">Form</span>
-                          <span className="text-sm font-bold text-emerald-300">{rec.buy.form}</span>
-                        </div>
-                      </div>
-                      {/* Easy Green Run FDR Badges */}
-                      <div className="pt-1.5 border-t border-emerald-500/20 flex gap-1 items-center overflow-x-auto">
-                        <span className="text-[10px] text-slate-400 mr-1 whitespace-nowrap">Green Run:</span>
-                        {rec.buy.nextFixtures.slice(0, 3).map((f, fIdx) => (
-                          <FDRBadge key={fIdx} fixture={f} />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-
-        {/* Filter Toolbar with Position, Easy Run, Max Price & Max Ownership */}
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/40 space-y-4">
-          <div className="flex flex-wrap gap-2 items-center justify-between">
-            <div className="flex flex-wrap gap-2">
-              {["ALL", "DEF", "MID", "FWD", "GKP"].map((pos) => (
-                <button
-                  key={pos}
-                  onClick={() => setSelectedPos(pos)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 ${
-                    selectedPos === pos
-                      ? "bg-emerald-500 text-slate-950 shadow-sm"
-                      : "bg-slate-800/80 text-slate-400 hover:text-white"
-                  }`}
-                >
-                  {pos}
-                </button>
-              ))}
-
-              <button
-                onClick={() => setEasyRunOnly(!easyRunOnly)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${
-                  easyRunOnly
-                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500"
-                    : "bg-slate-800/80 text-slate-400 border-transparent hover:text-white"
-                }`}
-              >
-                <span>🟢</span> Easy Run Only
-              </button>
-            </div>
-
-            {/* Differential Threshold Presets */}
-            <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-[11px]">
-              {[
-                { label: "Ultra (<3%)", val: 3.0 },
-                { label: "Punt (<10%)", val: 10.0 },
-                { label: "Semi (<20%)", val: 20.0 },
-                { label: "All (<100%)", val: 100.0 },
-              ].map((btn) => (
-                <button
-                  key={btn.val}
-                  onClick={() => setMaxOwnership(btn.val)}
-                  className={`px-2 py-1 rounded font-semibold transition-colors ${
-                    maxOwnership === btn.val
-                      ? "bg-indigo-600 text-white"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {btn.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Sliders: Max Price & Max Ownership */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60">
-            <div className="flex items-center justify-between sm:justify-start gap-3">
-              <label className="text-xs text-slate-400 min-w-[130px]">
-                Max Price: <strong className="text-emerald-400 font-mono">£{maxPrice.toFixed(1)}m</strong>
-              </label>
-              <input
-                type="range"
-                min="4.0"
-                max="15.0"
-                step="0.5"
-                value={maxPrice}
-                onChange={(e) => setMaxPrice(parseFloat(e.target.value))}
-                className="w-36 accent-emerald-500 cursor-pointer"
-              />
-            </div>
-
-            <div className="flex items-center justify-between sm:justify-start gap-3">
-              <label className="text-xs text-slate-400 min-w-[130px]">
-                Ownership Under: <strong className="text-indigo-400 font-mono">{maxOwnership}%</strong>
-              </label>
-              <input
-                type="range"
-                min="1.0"
-                max="50.0"
-                step="1.0"
-                value={maxOwnership}
-                onChange={(e) => setMaxOwnership(parseFloat(e.target.value))}
-                className="w-36 accent-indigo-500 cursor-pointer"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Table */}
-        {loading ? (
-          <div className="p-12 text-center border border-slate-800 rounded-xl bg-slate-900/30">
-            <p className="text-slate-400 animate-pulse text-sm">Gathering live Premier League numbers...</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/30 backdrop-blur shadow-2xl">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 select-none shadow-sm">
-                <tr className="text-slate-400 text-[11px] uppercase tracking-wider">
-                  <th onClick={() => handleSort("name")} className="py-3 px-4 cursor-pointer hover:text-white">
-                    Player {renderSortIndicator("name")}
-                  </th>
-                  <th className="py-3 px-3">Pos</th>
-                  <th className="py-3 px-3">Club</th>
-                  <th onClick={() => handleSort("costRaw")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    Cost {renderSortIndicator("costRaw")}
-                  </th>
-                  <th onClick={() => handleSort("ownershipRaw")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    Own {renderSortIndicator("ownershipRaw")}
-                  </th>
-                  <th onClick={() => handleSort("form")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    Form {renderSortIndicator("form")}
-                  </th>
-                  <th onClick={() => handleSort("xG")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    xG {renderSortIndicator("xG")}
-                  </th>
-                  <th onClick={() => handleSort("xA")} className="py-3 px-3 cursor-pointer hover:text-white">
-                    xA {renderSortIndicator("xA")}
-                  </th>
-                  <th className="py-3 px-4">Next 3 Runs</th>
-                  <th className="py-3 px-4 text-right">Rival Spy</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredPlayers.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-500 text-sm">
-                      No differentials match your selected filters. Try sliding Ownership or Price higher.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredPlayers.map((p) => {
-                    const iOwn = myManager?.ownedPlayerIds.includes(p.id);
-                    const rivalOwns = rivalManager?.ownedPlayerIds.includes(p.id);
-                    const rivalOwnersCount = leagueRivals.filter(
-                      (r) => r.ownedPlayerIds && r.ownedPlayerIds.includes(p.id)
-                    ).length;
-
-                    let badge = <span className="text-xs text-slate-600">—</span>;
-
-                    if (myManager || rivalManager || leagueRivals.length > 0) {
-                      if (myManager && iOwn) {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 whitespace-nowrap">
-                            In Your Squad
-                          </span>
-                        );
-                      } else if (rivalManager && rivalOwns) {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 whitespace-nowrap animate-pulse">
-                            ⚠️ Rival Shield Required
-                          </span>
-                        );
-                      } else if (rivalOwnersCount > 1) {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap animate-pulse">
-                            🛡️ Must Shield
-                          </span>
-                        );
-                      } else if (!rivalOwns && rivalOwnersCount === 0 && parseFloat(p.form) >= 5.0) {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/40 whitespace-nowrap">
-                            🔥 True Weapon
-                          </span>
-                        );
-                      } else if (rivalManager && !rivalOwns && !iOwn) {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 whitespace-nowrap">
-                            🔥 Leapfrog Target
-                          </span>
-                        );
-                      } else {
-                        badge = (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 whitespace-nowrap">
-                            Scout Target
-                          </span>
-                        );
-                      }
-                    }
-
-                    return (
-                      <tr
-                        key={p.id}
-                        className={`transition-colors ${
-                          iOwn ? "bg-emerald-950/15" : rivalOwns ? "bg-rose-950/15" : "hover:bg-slate-800/30"
-                        }`}
-                      >
-                        <td className="py-3 px-4 font-semibold text-slate-100 whitespace-nowrap">{p.name}</td>
-                        <td className="py-3 px-3">
-                          <span className="text-[11px] text-slate-400 font-mono font-medium">{p.position}</span>
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[11px] font-medium text-slate-300">
-                            {p.team}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-emerald-400 font-medium">£{p.price}m</td>
-                        <td className="py-3 px-3 font-mono text-indigo-300">{p.ownership}</td>
-                        <td className="py-3 px-3 font-semibold text-amber-400">{p.form}</td>
-                        <td className="py-3 px-3 font-mono text-slate-300">{p.xG}</td>
-                        <td className="py-3 px-3 font-mono text-slate-300">{p.xA}</td>
-                        
-                        <td className="py-3 px-4">
-                          <div className="flex gap-1">
-                            {p.nextFixtures.length > 0 ? (
-                              p.nextFixtures.map((f, idx) => (
-                                <FDRBadge key={idx} fixture={f} />
-                              ))
-                            ) : (
-                              <span className="text-xs text-slate-600">—</span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-4 text-right">
-                          {badge}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      )}
     </main>
   );
 }
