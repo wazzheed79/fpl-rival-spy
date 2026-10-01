@@ -6,8 +6,20 @@ import { RivalReconCard } from '@/components/intel/RivalReconCard';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
 import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
 import { LeapfrogEngine } from '@/components/transfers/LeapfrogEngine';
+import { RankSwingForecast } from '@/components/radar/RankSwingForecast';
+import { HeadToHeadTrendChart } from '@/components/radar/HeadToHeadTrendChart';
+import { LiveMomentumFeed } from '@/components/intel/LiveMomentumFeed';
+import { LeagueThreatBoard } from '@/components/league/LeagueThreatBoard';
+import { PriceAlertFeed } from '@/components/transfers/PriceAlertFeed';
+import { ChipWarPlanner } from '@/components/intel/ChipWarPlanner';
 import { LeagueResponse, DuelResponse } from '@/types/fpl';
 import { SquadPlayer, CandidatePlayer } from '@/lib/leapfrog';
+import { computeRankSwingForecast, SwingPlayer } from '@/lib/rankSwing';
+import { ChipPlannerSquadPlayer } from '@/lib/chipPlanner';
+
+const SEASON_TOTAL_GWS = 38;
+
+type TabKey = 'duel' | 'forecast' | 'league' | 'market';
 
 export default function FplDashboardPage() {
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
@@ -15,7 +27,6 @@ export default function FplDashboardPage() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [selectedRivalId, setSelectedRivalId] = useState<number | null>(null);
   const [duelData, setDuelData] = useState<DuelResponse | null>(null);
-  const [marketPool, setMarketPool] = useState<CandidatePlayer[]>([]);
   const [isLoadingLeague, setIsLoadingLeague] = useState<boolean>(false);
   const [isLoadingDuel, setIsLoadingDuel] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -69,7 +80,7 @@ export default function FplDashboardPage() {
       .then((data: DuelResponse) => {
         if (!isSubscribed) return;
         setDuelData(data);
-        generateCandidateMarketPool(data);
+        fetchMarketPool(data);
       })
       .catch((err) => {
         if (isSubscribed) setErrorMessage(err.message);
@@ -83,58 +94,117 @@ export default function FplDashboardPage() {
     };
   }, [selectedUserId, selectedRivalId]);
 
+  // Real differential market pool, sourced from /api/differentials (live FPL form/FDR/xGI/ownership)
+  // rather than hardcoded placeholder players.
+  const [rawPlayerPool, setRawPlayerPool] = useState<CandidatePlayer[]>([]);
+
+  const fetchMarketPool = async (currentDuel: DuelResponse) => {
+    const rivalIds = currentDuel.rival.picks.map((p) => p.id);
+    const squadIds = currentDuel.user.picks.map((p) => p.id);
+    const forceIds = [...squadIds, ...rivalIds];
+
+    try {
+      const res = await fetch(
+        `/api/differentials?rivalIds=${rivalIds.join(',')}&forceIds=${forceIds.join(',')}`
+      );
+      if (!res.ok) throw new Error('Failed to fetch differential market pool');
+      const data: CandidatePlayer[] = await res.json();
+      setRawPlayerPool(data);
+    } catch {
+      // Non-fatal: Leapfrog Engine degrades gracefully with an empty pool.
+      setRawPlayerPool([]);
+    }
+  };
+
   const leapfrogSquad: SquadPlayer[] = React.useMemo(() => {
     if (!duelData) return [];
-    return duelData.user.picks.map((p) => ({
-      id: p.id,
-      webName: p.webName,
-      teamShort: p.teamShort,
-      teamCode: p.teamCode,
-      photoCode: p.photoCode,
-      elementType: p.elementType,
-      cost: 6.0,
-      sellingPrice: 6.0,
-      form: p.effectivePoints > 0 ? Number((p.effectivePoints * 0.8).toFixed(1)) : 2.5,
-      xgi: 0.35,
-      fdrNext3Avg: p.category === 'WEAPON' ? 2.3 : 3.8,
-      localOwnershipPct: p.category === 'SHIELD' ? 80 : 10,
-      chanceOfPlaying: 100,
-    }));
-  }, [duelData]);
+    const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
 
-  const generateCandidateMarketPool = (currentDuel: DuelResponse) => {
-    const userPlayerIds = new Set(currentDuel.user.picks.map((p) => p.id));
+    return duelData.user.picks.map((p) => {
+      const real = poolById.get(p.id);
+      // Fall back to conservative estimates if a squad player fell outside the live data pool.
+      return {
+        id: p.id,
+        webName: p.webName,
+        teamShort: p.teamShort,
+        teamCode: p.teamCode,
+        photoCode: p.photoCode,
+        elementType: p.elementType,
+        cost: real?.cost ?? 5.0,
+        sellingPrice: real?.cost ?? 5.0,
+        form: real?.form ?? 2.5,
+        xgi: real?.xgi ?? 0,
+        fdrNext3Avg: real?.fdrNext3Avg ?? 3.0,
+        localOwnershipPct: p.category === 'SHIELD' ? 100 : 0,
+        chanceOfPlaying: real?.chanceOfPlaying ?? 100,
+      };
+    });
+  }, [duelData, rawPlayerPool]);
 
-    const candidates: CandidatePlayer[] = [
-      ...currentDuel.rival.picks.map((rp) => ({
-        id: rp.id,
-        webName: rp.webName,
-        teamShort: rp.teamShort,
-        elementType: rp.elementType,
-        cost: 6.5,
-        form: Number(Math.max(3.5, rp.effectivePoints * 0.9).toFixed(1)),
-        xgi: 0.55,
-        fdrNext3Avg: 2.3,
-        localOwnershipPct: 15,
-        chanceOfPlaying: 100,
-        isOwnedByRival: true,
-      })),
-      { id: 901, webName: 'Semenyo', teamShort: 'BOU', elementType: 3, cost: 5.7, form: 5.8, xgi: 0.68, fdrNext3Avg: 2.3, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 902, webName: 'Minteh', teamShort: 'BHA', elementType: 3, cost: 5.5, form: 5.2, xgi: 0.54, fdrNext3Avg: 2.3, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 903, webName: 'Wood', teamShort: 'NFO', elementType: 4, cost: 6.4, form: 6.2, xgi: 0.72, fdrNext3Avg: 2.0, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 904, webName: 'Delap', teamShort: 'IPS', elementType: 4, cost: 5.6, form: 4.8, xgi: 0.49, fdrNext3Avg: 2.6, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 905, webName: 'Aït-Nouri', teamShort: 'WOL', elementType: 2, cost: 4.7, form: 4.5, xgi: 0.38, fdrNext3Avg: 2.3, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 906, webName: 'Lewis', teamShort: 'MCI', elementType: 2, cost: 4.8, form: 4.2, xgi: 0.31, fdrNext3Avg: 2.6, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 907, webName: 'Verbruggen', teamShort: 'BHA', elementType: 1, cost: 4.5, form: 4.0, xgi: 0.0, fdrNext3Avg: 2.3, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-      { id: 908, webName: 'Sels', teamShort: 'NFO', elementType: 1, cost: 4.6, form: 4.6, xgi: 0.0, fdrNext3Avg: 2.0, localOwnershipPct: 0, chanceOfPlaying: 100, isOwnedByRival: false },
-    ];
-
-    setMarketPool(candidates.filter((c) => !userPlayerIds.has(c.id)));
-  };
+  const marketPool: CandidatePlayer[] = React.useMemo(() => {
+    if (!duelData) return [];
+    const userPlayerIds = new Set(duelData.user.picks.map((p) => p.id));
+    return rawPlayerPool.filter((c) => !userPlayerIds.has(c.id));
+  }, [duelData, rawPlayerPool]);
 
   const rivalPickIds = React.useMemo(() => {
     return duelData ? duelData.rival.picks.map((p) => p.id) : [];
   }, [duelData]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>('duel');
+
+  // Shared derived squads for the predictive rank-swing model and chip war planner - both need
+  // real form/FDR per player, sourced from the same differentials pool as the Leapfrog Engine.
+  const toSwingSquad = (picks: DuelResponse['user']['picks']): SwingPlayer[] => {
+    const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
+    return picks.map((p) => {
+      const real = poolById.get(p.id);
+      return {
+        id: p.id,
+        webName: p.webName,
+        isStarter: p.isStarter,
+        multiplier: p.multiplier,
+        form: real?.form ?? 2.5,
+        fdrNext3Avg: real?.fdrNext3Avg ?? 3.0,
+      };
+    });
+  };
+
+  const userSwingSquad: SwingPlayer[] = React.useMemo(
+    () => (duelData ? toSwingSquad(duelData.user.picks) : []),
+    [duelData, rawPlayerPool]
+  );
+  const rivalSwingSquad: SwingPlayer[] = React.useMemo(
+    () => (duelData ? toSwingSquad(duelData.rival.picks) : []),
+    [duelData, rawPlayerPool]
+  );
+
+  const rankSwingForecast = React.useMemo(() => {
+    if (!duelData || userSwingSquad.length === 0) return null;
+    const currentMargin = duelData.user.totalPoints - duelData.rival.totalPoints;
+    const remainingGws = Math.max(0, SEASON_TOTAL_GWS - duelData.gameweek);
+    return computeRankSwingForecast(userSwingSquad, rivalSwingSquad, currentMargin, remainingGws);
+  }, [duelData, userSwingSquad, rivalSwingSquad]);
+
+  const chipSquad: ChipPlannerSquadPlayer[] = React.useMemo(() => {
+    if (!duelData) return [];
+    const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
+    return duelData.user.picks.map((p) => ({
+      id: p.id,
+      webName: p.webName,
+      teamShort: p.teamShort,
+      elementType: p.elementType,
+      form: poolById.get(p.id)?.form ?? 2.5,
+      isStarter: p.isStarter,
+    }));
+  }, [duelData, rawPlayerPool]);
+
+  const TABS: Array<{ key: TabKey; label: string; icon: string }> = [
+    { key: 'duel', label: 'Duel', icon: '⚔️' },
+    { key: 'forecast', label: 'Forecast', icon: '📡' },
+    { key: 'league', label: 'League', icon: '🏆' },
+    { key: 'market', label: 'Market', icon: '💹' },
+  ];
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-black">
@@ -252,39 +322,87 @@ export default function FplDashboardPage() {
         )}
 
         {!isLoadingDuel && duelData && (
-          <div className="space-y-8">
-            {/* 1. Live Pitch Duel */}
-            <PitchDuel data={duelData} />
+          <div className="space-y-6">
+            <nav className="flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/60 p-1.5 shadow-xl overflow-x-auto">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold whitespace-nowrap transition-all ${
+                    activeTab === tab.key
+                      ? 'bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 shadow-lg'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  }`}
+                >
+                  <span>{tab.icon}</span> {tab.label}
+                </button>
+              ))}
+            </nav>
 
-            {/* 2. Rival Autopsy & Sharable Roast Card */}
-            <RivalAutopsyCard data={duelData} />
+            {activeTab === 'duel' && (
+              <div className="space-y-8">
+                <PitchDuel data={duelData} />
+                <RivalAutopsyCard data={duelData} />
+                <RivalReconCard user={duelData.user} rival={duelData.rival} currentGw={duelData.gameweek} />
+                <HitTaxTracker
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  userName={duelData.user.teamName}
+                  rivalName={duelData.rival.teamName}
+                  currentGw={duelData.gameweek}
+                />
+                <LeapfrogEngine
+                  squad={leapfrogSquad}
+                  playerPool={marketPool}
+                  bank={duelData.user.bank}
+                  userTotalPoints={duelData.user.totalPoints}
+                  rivalTotalPoints={duelData.rival.totalPoints}
+                  currentGw={duelData.gameweek}
+                  rivalPicksIds={rivalPickIds}
+                />
+              </div>
+            )}
 
-            {/* 3. Rival Recon & Chip Asymmetry Arsenal */}
-            <RivalReconCard
-              user={duelData.user}
-              rival={duelData.rival}
-              currentGw={duelData.gameweek}
-            />
+            {activeTab === 'forecast' && (
+              <div className="space-y-8">
+                {rankSwingForecast && (
+                  <RankSwingForecast
+                    forecast={rankSwingForecast}
+                    userName={duelData.user.teamName}
+                    rivalName={duelData.rival.teamName}
+                    remainingGws={Math.max(0, SEASON_TOTAL_GWS - duelData.gameweek)}
+                  />
+                )}
+                <LiveMomentumFeed
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  currentGw={duelData.gameweek}
+                />
+                <HeadToHeadTrendChart
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  userName={duelData.user.teamName}
+                  rivalName={duelData.rival.teamName}
+                />
+              </div>
+            )}
 
-            {/* 4. Hit Tax Break-Even Tracker */}
-            <HitTaxTracker
-              userId={duelData.user.teamId}
-              rivalId={duelData.rival.teamId}
-              userName={duelData.user.teamName}
-              rivalName={duelData.rival.teamName}
-              currentGw={duelData.gameweek}
-            />
+            {activeTab === 'league' && leagueData && (
+              <div className="space-y-8">
+                <LeagueThreatBoard
+                  leagueId={leagueData.leagueId}
+                  highlightUserId={selectedUserId}
+                  highlightRivalId={selectedRivalId}
+                />
+              </div>
+            )}
 
-            {/* 5. Leapfrog Engine with Chasing vs Defending Modes */}
-            <LeapfrogEngine
-              squad={leapfrogSquad}
-              playerPool={marketPool}
-              bank={duelData.user.bank}
-              userTotalPoints={duelData.user.totalPoints}
-              rivalTotalPoints={duelData.rival.totalPoints}
-              currentGw={duelData.gameweek}
-              rivalPicksIds={rivalPickIds}
-            />
+            {activeTab === 'market' && (
+              <div className="space-y-8">
+                <PriceAlertFeed rivalIds={rivalPickIds} />
+                <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />
+              </div>
+            )}
           </div>
         )}
       </div>

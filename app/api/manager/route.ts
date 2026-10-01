@@ -132,13 +132,18 @@ export async function GET(request: NextRequest) {
         // Award provisional BPS (3, 2, 1) handling standard ties
         if (allBps.length > 0) {
           const top = allBps[0].value;
+          const topTierCount = allBps.filter((x) => x.value === top).length;
           allBps.filter((x) => x.value === top).forEach((x) => provisionalBonusMap.set(x.element, 3));
 
-          const secondTier = allBps.filter((x) => x.value < top);
-          if (secondTier.length > 0) {
-            const second = secondTier[0].value;
-            const pointsToAward = allBps.filter((x) => x.value === top).length > 1 ? 1 : 2;
-            secondTier.filter((x) => x.value === second).forEach((x) => provisionalBonusMap.set(x.element, pointsToAward));
+          // A 3-way-or-more tie for 1st consumes all 3 bonus slots, so no one else scores.
+          if (topTierCount < 3) {
+            const secondTier = allBps.filter((x) => x.value < top);
+            if (secondTier.length > 0) {
+              const second = secondTier[0].value;
+              // A 2-way tie for 1st skips 2nd place entirely, so 3rd place gets 1 (not 2).
+              const pointsToAward = topTierCount > 1 ? 1 : 2;
+              secondTier.filter((x) => x.value === second).forEach((x) => provisionalBonusMap.set(x.element, pointsToAward));
+            }
           }
         }
       }
@@ -240,7 +245,7 @@ export async function GET(request: NextRequest) {
           benchGk &&
           startingGk.hasFinishedMatch &&
           startingGk.stats.minutes === 0 &&
-          benchGk.stats.minutes > 0
+          (benchGk.stats.minutes > 0 || !benchGk.hasFinishedMatch)
         ) {
           startingGk.isStarter = false;
           startingGk.multiplier = 0;

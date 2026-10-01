@@ -85,3 +85,56 @@ export interface LeagueResponse {
   leagueName: string;
   standings: LeagueCompetitor[];
 }
+
+export interface LeagueThreatEntry {
+  entry: number;
+  entryName: string;
+  playerName: string;
+  rank: number;
+  lastRank: number;
+  rankDelta: number; // positive = climbing since last gameweek
+  total: number;
+  eventTotal: number;
+  gapToRankAbove: number; // points needed to overtake the rank directly above
+  cushionToRankBelow: number | null; // points lead over the rank directly below
+}
+
+export interface LeagueThreatBoardResponse {
+  leagueId: number;
+  leagueName: string;
+  entries: LeagueThreatEntry[];
+  liveGwLeaderboard: Array<LeagueThreatEntry & { liveGwRank: number }>;
+}
+
+export interface PriceAlertPlayer {
+  id: number;
+  webName: string;
+  teamShort: string;
+  elementType: number;
+  cost: number;
+  ownershipPct: number;
+  netTransfersEvent: number; // transfers_in_event - transfers_out_event
+  costChangeEvent: number; // today's price movement so far (in £0.1m steps)
+  costChangeStart: number; // season-to-date price movement
+  direction: 'RISING' | 'FALLING';
+  confidence: 'WATCH' | 'LIKELY' | 'IMMINENT';
+  isOwnedByRival: boolean;
+}
+
+export interface PriceAlertResponse {
+  asOfEvent: number;
+  risers: PriceAlertPlayer[];
+  fallers: PriceAlertPlayer[];
+}
+
+export interface HeadToHeadPoint {
+  event: number;
+  userPoints: number;
+  rivalPoints: number;
+  userTotal: number;
+  rivalTotal: number;
+}
+
+export interface HeadToHeadHistoryResponse {
+  points: HeadToHeadPoint[];
+}
