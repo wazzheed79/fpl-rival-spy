@@ -17,7 +17,13 @@ export async function GET(request: NextRequest) {
     });
 
     if (!res.ok) {
-      throw new Error(`FPL API returned HTTP ${res.status}`);
+      // A real HTTP response means the FPL API is reachable and the league ID itself
+      // was rejected (e.g. it doesn't exist) — surface this instead of masking it
+      // with fake "Demo Mini-League" data.
+      return NextResponse.json(
+        { error: `League ${leagueId} could not be found (FPL API returned HTTP ${res.status}).` },
+        { status: res.status === 404 ? 404 : 502 }
+      );
     }
 
     const data = await res.json();
