@@ -41,6 +41,28 @@ export const HeadToHeadTrendChart: React.FC<HeadToHeadTrendChartProps> = ({
     };
   }, [userId, rivalId]);
 
+  // Derived head-to-head match stats for Trophy Banner
+  const h2hStats = React.useMemo(() => {
+    let userWins = 0;
+    let rivalWins = 0;
+    let draws = 0;
+    let biggestWin = 0;
+
+    points.forEach((p) => {
+      const margin = p.userPoints - p.rivalPoints;
+      if (margin > 0) {
+        userWins += 1;
+        if (margin > biggestWin) biggestWin = margin;
+      } else if (margin < 0) {
+        rivalWins += 1;
+      } else {
+        draws += 1;
+      }
+    });
+
+    return { userWins, rivalWins, draws, biggestWin, total: points.length };
+  }, [points]);
+
   if (isLoading) {
     return (
       <div className="w-full max-w-7xl mx-auto rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl">
@@ -82,7 +104,10 @@ export const HeadToHeadTrendChart: React.FC<HeadToHeadTrendChartProps> = ({
     <div className="w-full max-w-7xl mx-auto rounded-2xl border border-slate-800 bg-slate-950 p-6 shadow-2xl space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
         <div>
-          <h2 className="text-xl font-black tracking-tight text-white">📊 Head-to-Head Trend</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🏆</span>
+            <h2 className="text-xl font-black tracking-tight text-white">Head-to-Head Trend & Trophy Case</h2>
+          </div>
           <p className="text-xs text-slate-400 mt-0.5">{leadLabel}</p>
         </div>
         <div className="inline-flex rounded-lg border border-slate-800 bg-slate-900 p-1 text-xs">
@@ -102,6 +127,34 @@ export const HeadToHeadTrendChart: React.FC<HeadToHeadTrendChartProps> = ({
           >
             Per-GW
           </button>
+        </div>
+      </div>
+
+      {/* Mini Trophy Record Banner */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900/40 p-3 rounded-xl border border-slate-800">
+        <div>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">H2H Gameweeks</span>
+          <span className="text-sm font-mono font-bold text-white">
+            <span className="text-cyan-400">{h2hStats.userWins}W</span> - <span className="text-slate-400">{h2hStats.draws}D</span> - <span className="text-rose-400">{h2hStats.rivalWins}L</span>
+          </span>
+        </div>
+        <div>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Win Rate</span>
+          <span className="text-sm font-mono font-bold text-emerald-400">
+            {h2hStats.total > 0 ? Math.round((h2hStats.userWins / h2hStats.total) * 100) : 0}%
+          </span>
+        </div>
+        <div>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Biggest Win</span>
+          <span className="text-sm font-mono font-bold text-cyan-400">
+            +{h2hStats.biggestWin} pts
+          </span>
+        </div>
+        <div>
+          <span className="text-[10px] text-slate-400 uppercase font-bold block">Dominance</span>
+          <span className="text-xs font-bold text-slate-200">
+            {h2hStats.userWins > h2hStats.rivalWins ? '👑 You lead H2H' : h2hStats.userWins === h2hStats.rivalWins ? '🤝 Dead heat' : '⚠️ Rival leads H2H'}
+          </span>
         </div>
       </div>
 

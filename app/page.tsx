@@ -12,6 +12,10 @@ import { LiveMomentumFeed } from '@/components/intel/LiveMomentumFeed';
 import { LeagueThreatBoard } from '@/components/league/LeagueThreatBoard';
 import { PriceAlertFeed } from '@/components/transfers/PriceAlertFeed';
 import { ChipWarPlanner } from '@/components/intel/ChipWarPlanner';
+import { RivalTransferPredictor } from '@/components/intel/RivalTransferPredictor';
+import { BanterCardStudio } from '@/components/intel/BanterCardStudio';
+import { ScenarioSimulator } from '@/components/radar/ScenarioSimulator';
+import { MiniLeagueEOMatrix } from '@/components/radar/MiniLeagueEOMatrix';
 import { LeagueResponse, DuelResponse } from '@/types/fpl';
 import { SquadPlayer, CandidatePlayer } from '@/lib/leapfrog';
 import { computeRankSwingForecast, SwingPlayer } from '@/lib/rankSwing';
@@ -19,7 +23,7 @@ import { ChipPlannerSquadPlayer } from '@/lib/chipPlanner';
 
 const SEASON_TOTAL_GWS = 38;
 
-type TabKey = 'duel' | 'forecast' | 'league' | 'market';
+type TabKey = 'duel' | 'forecast' | 'simulator' | 'league' | 'market';
 
 export default function FplDashboardPage() {
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
@@ -202,8 +206,9 @@ export default function FplDashboardPage() {
   const TABS: Array<{ key: TabKey; label: string; icon: string }> = [
     { key: 'duel', label: 'Duel', icon: '⚔️' },
     { key: 'forecast', label: 'Forecast', icon: '📡' },
+    { key: 'simulator', label: 'Simulator', icon: '🎛️' },
     { key: 'league', label: 'League', icon: '🏆' },
-    { key: 'market', label: 'Market', icon: '💹' },
+    { key: 'market', label: 'Market & Spy', icon: '💹' },
   ];
 
   return (
@@ -342,6 +347,7 @@ export default function FplDashboardPage() {
             {activeTab === 'duel' && (
               <div className="space-y-8">
                 <PitchDuel data={duelData} />
+                <BanterCardStudio data={duelData} />
                 <RivalAutopsyCard data={duelData} />
                 <RivalReconCard user={duelData.user} rival={duelData.rival} currentGw={duelData.gameweek} />
                 <HitTaxTracker
@@ -387,8 +393,21 @@ export default function FplDashboardPage() {
               </div>
             )}
 
+            {activeTab === 'simulator' && (
+              <div className="space-y-8">
+                <ScenarioSimulator data={duelData} />
+              </div>
+            )}
+
             {activeTab === 'league' && leagueData && (
               <div className="space-y-8">
+                <MiniLeagueEOMatrix
+                  leagueId={leagueData.leagueId}
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  userName={duelData.user.teamName}
+                  rivalName={duelData.rival.teamName}
+                />
                 <LeagueThreatBoard
                   leagueId={leagueData.leagueId}
                   highlightUserId={selectedUserId}
@@ -399,6 +418,12 @@ export default function FplDashboardPage() {
 
             {activeTab === 'market' && (
               <div className="space-y-8">
+                <RivalTransferPredictor
+                  rival={duelData.rival}
+                  user={duelData.user}
+                  marketPool={marketPool}
+                  currentGw={duelData.gameweek}
+                />
                 <PriceAlertFeed rivalIds={rivalPickIds} />
                 <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />
               </div>
