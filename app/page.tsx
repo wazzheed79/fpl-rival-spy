@@ -34,8 +34,64 @@ export default function FplDashboardPage() {
   const [isLoadingLeague, setIsLoadingLeague] = useState<boolean>(false);
   const [isLoadingDuel, setIsLoadingDuel] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState<boolean>(false);
 
-  const handleFetchLeague = async (idToFetch: string) => {
+  // Load initial settings from URL params or localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramLeague = urlParams.get('league');
+    const paramUser = urlParams.get('user');
+    const paramRival = urlParams.get('rival');
+
+    const savedLeague = paramLeague || localStorage.getItem('fpl_spy_league') || '314';
+    const savedUser = paramUser ? Number(paramUser) : Number(localStorage.getItem('fpl_spy_user')) || null;
+    const savedRival = paramRival ? Number(paramRival) : Number(localStorage.getItem('fpl_spy_rival')) || null;
+
+    setLeagueIdInput(savedLeague);
+    handleFetchLeague(savedLeague, savedUser, savedRival);
+  }, []);
+
+  // Sync state to URL and localStorage whenever IDs change
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (leagueData?.leagueId) {
+      localStorage.setItem('fpl_spy_league', leagueData.leagueId.toString());
+    }
+    if (selectedUserId) {
+      localStorage.setItem('fpl_spy_user', selectedUserId.toString());
+    }
+    if (selectedRivalId) {
+      localStorage.setItem('fpl_spy_rival', selectedRivalId.toString());
+    }
+
+    if (leagueData?.leagueId && selectedUserId && selectedRivalId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('league', leagueData.leagueId.toString());
+      url.searchParams.set('user', selectedUserId.toString());
+      url.searchParams.set('rival', selectedRivalId.toString());
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [leagueData?.leagueId, selectedUserId, selectedRivalId]);
+
+  const handleCopyShareLink = async () => {
+    if (typeof window === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleFetchLeague = async (
+    idToFetch: string,
+    initialUserId: number | null = null,
+    initialRivalId: number | null = null
+  ) => {
     if (!idToFetch.trim()) return;
     setIsLoadingLeague(true);
     setErrorMessage(null);
@@ -50,7 +106,13 @@ export default function FplDashboardPage() {
       const data: LeagueResponse = await res.json();
       setLeagueData(data);
 
-      if (data.standings.length >= 2) {
+      const userExists = data.standings.some((c) => c.entry === initialUserId);
+      const rivalExists = data.standings.some((c) => c.entry === initialRivalId);
+
+      if (initialUserId && userExists && initialRivalId && rivalExists) {
+        setSelectedUserId(initialUserId);
+        setSelectedRivalId(initialRivalId);
+      } else if (data.standings.length >= 2) {
         setSelectedUserId(data.standings[1].entry);
         setSelectedRivalId(data.standings[0].entry);
       } else if (data.standings.length === 1) {
@@ -64,10 +126,6 @@ export default function FplDashboardPage() {
       setIsLoadingLeague(false);
     }
   };
-
-  useEffect(() => {
-    handleFetchLeague(leagueIdInput);
-  }, []);
 
   useEffect(() => {
     if (!selectedUserId || !selectedRivalId) return;
@@ -229,28 +287,45 @@ export default function FplDashboardPage() {
             </div>
           </div>
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleFetchLeague(leagueIdInput);
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={leagueIdInput}
-              onChange={(e) => setLeagueIdInput(e.target.value)}
-              placeholder="Mini-League ID"
-              className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
-            />
-            <button
-              type="submit"
-              disabled={isLoadingLeague}
-              className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+          <div className="flex items-center gap-3">
+            {duelData && (
+              <button
+                type="button"
+                onClick={handleCopyShareLink}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all shadow-sm ${
+                  linkCopied
+                    ? 'bg-emerald-500 text-slate-950 ring-1 ring-emerald-400'
+                    : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="Copy shareable link to this duel"
+              >
+                {linkCopied ? '✔ Copied Link!' : '🔗 Share Duel'}
+              </button>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleFetchLeague(leagueIdInput);
+              }}
+              className="flex items-center gap-2"
             >
-              {isLoadingLeague ? 'Syncing...' : 'Sync'}
-            </button>
-          </form>
+              <input
+                type="text"
+                value={leagueIdInput}
+                onChange={(e) => setLeagueIdInput(e.target.value)}
+                placeholder="Mini-League ID"
+                className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={isLoadingLeague}
+                className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+              >
+                {isLoadingLeague ? 'Syncing...' : 'Sync'}
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
