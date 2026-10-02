@@ -20,6 +20,9 @@ export interface EnrichedPlayer {
   effectivePoints: number;
   subStatus: SubStatus;
   hasFinishedMatch: boolean;
+  form?: number;
+  fdr?: number;
+  ownership?: number | string;
   stats: {
     minutes: number;
     goals: number;

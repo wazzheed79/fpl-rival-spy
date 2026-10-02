@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { LeagueThreatBoardResponse, LeagueThreatEntry } from '@/types/fpl';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
 export async function GET(request: NextRequest) {
@@ -8,12 +10,16 @@ export async function GET(request: NextRequest) {
   const leagueId = searchParams.get('leagueId') || '314';
   const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10) || 50, 50);
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6500);
+
   try {
     const res = await fetch(`${FPL_BASE_URL}/leagues-classic/${leagueId}/standings/`, {
       headers: {
         'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
         Accept: 'application/json',
       },
+      signal: controller.signal,
       next: { revalidate: 60 },
     });
 
@@ -67,5 +73,7 @@ export async function GET(request: NextRequest) {
       { error: error.message || 'Failed to build league threat board' },
       { status: 500 }
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

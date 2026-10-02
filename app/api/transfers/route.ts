@@ -1,20 +1,31 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
-async function fetchFpl<T>(endpoint: string, revalidateSeconds: number = 60): Promise<T> {
-  const res = await fetch(`${FPL_BASE_URL}${endpoint}`, {
-    headers: {
-      'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
-    },
-    next: { revalidate: revalidateSeconds },
-  });
+async function fetchFpl<T>(endpoint: string, revalidateSeconds: number = 60, timeoutMs = 8000): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    throw new Error(`FPL API error [${endpoint}]: HTTP ${res.status} ${res.statusText}`);
+  try {
+    const res = await fetch(`${FPL_BASE_URL}${endpoint}`, {
+      headers: {
+        'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+      next: { revalidate: revalidateSeconds },
+    });
+
+    if (!res.ok) {
+      throw new Error(`FPL API error [${endpoint}]: HTTP ${res.status} ${res.statusText}`);
+    }
+
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return res.json() as Promise<T>;
 }
 
 export interface TransferEventAudit {

@@ -2,6 +2,8 @@
 import { fetchFPL } from '@/lib/fpl/client';
 import { BootstrapStatic, ManagerPicksResponse } from '@/lib/fpl/types';
 
+export const dynamic = 'force-dynamic';
+
 interface TransferRecommendation {
   sellPlayer: {
     id: number;
@@ -104,6 +106,6 @@ export async function GET(request: Request) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error generating transfer picks';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ bank: 0, recommendations: [], error: message }, { status: 200 });
   }
 }

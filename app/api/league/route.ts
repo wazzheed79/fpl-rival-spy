@@ -1,29 +1,35 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { LeagueResponse } from '@/types/fpl';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const leagueId = searchParams.get('leagueId') || '314';
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6500);
+
   try {
     const res = await fetch(`${FPL_BASE_URL}/leagues-classic/${leagueId}/standings/`, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (FPL-Rival-Spy)',
         'Accept': 'application/json',
       },
+      signal: controller.signal,
       next: { revalidate: 120 },
     });
 
     if (!res.ok) {
-      // A real HTTP response means the FPL API is reachable and the league ID itself
-      // was rejected (e.g. it doesn't exist) — surface this instead of masking it
-      // with fake "Demo Mini-League" data.
-      return NextResponse.json(
-        { error: `League ${leagueId} could not be found (FPL API returned HTTP ${res.status}).` },
-        { status: res.status === 404 ? 404 : 502 }
-      );
+      if (res.status === 404) {
+        return NextResponse.json(
+          { error: `League ${leagueId} could not be found (FPL API returned HTTP 404).` },
+          { status: 404 }
+        );
+      }
+      throw new Error(`FPL API status ${res.status}`);
     }
 
     const data = await res.json();
@@ -59,5 +65,7 @@ export async function GET(request: NextRequest) {
     };
 
     return NextResponse.json(demoPayload, { status: 200 });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

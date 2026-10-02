@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CandidatePlayer } from "@/lib/leapfrog";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7500);
+
   try {
     const { searchParams } = new URL(request.url);
     // Element IDs the rival currently owns, used to flag block-transfer targets.
@@ -22,15 +27,25 @@ export async function GET(request: NextRequest) {
 
     const [bootstrapRes, fixturesRes] = await Promise.all([
       fetch("https://fantasy.premierleague.com/api/bootstrap-static/", {
+        headers: {
+          'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
         next: { revalidate: 1800 },
       }),
       fetch("https://fantasy.premierleague.com/api/fixtures/?future=1", {
+        headers: {
+          'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
         next: { revalidate: 1800 },
       }),
     ]);
 
     if (!bootstrapRes.ok || !fixturesRes.ok) {
-      return NextResponse.json({ error: "Failed to fetch FPL data" }, { status: 500 });
+      return NextResponse.json([], { status: 200 });
     }
 
     const bootstrap = await bootstrapRes.json();
@@ -135,6 +150,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(pool);
   } catch (error) {
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json([], { status: 200 });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

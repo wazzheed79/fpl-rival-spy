@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
 export interface TeamFixtureOutlook {
@@ -19,14 +21,31 @@ export interface FixturesOutlookResponse {
 // next matches without gameweek numbers), this keeps the actual event number per fixture so
 // callers can find the single best gameweek to deploy Bench Boost / Triple Captain.
 export async function GET() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
+
   try {
     const [bootstrapRes, fixturesRes] = await Promise.all([
-      fetch(`${FPL_BASE_URL}/bootstrap-static/`, { next: { revalidate: 1800 } }),
-      fetch(`${FPL_BASE_URL}/fixtures/?future=1`, { next: { revalidate: 1800 } }),
+      fetch(`${FPL_BASE_URL}/bootstrap-static/`, {
+        headers: {
+          'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+        next: { revalidate: 1800 },
+      }),
+      fetch(`${FPL_BASE_URL}/fixtures/?future=1`, {
+        headers: {
+          'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+        next: { revalidate: 1800 },
+      }),
     ]);
 
     if (!bootstrapRes.ok || !fixturesRes.ok) {
-      return NextResponse.json({ error: 'Failed to fetch FPL data' }, { status: 500 });
+      return NextResponse.json({ currentEvent: 1, teams: {}, error: 'Failed to fetch FPL data' }, { status: 200 });
     }
 
     const bootstrap = await bootstrapRes.json();
@@ -71,7 +90,9 @@ export async function GET() {
 
     const payload: FixturesOutlookResponse = { currentEvent, teams };
     return NextResponse.json(payload);
-  } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json({ currentEvent: 1, teams: {}, error: error.message || 'Internal server error' }, { status: 200 });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

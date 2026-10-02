@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PriceAlertPlayer, PriceAlertResponse } from '@/types/fpl';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
 // FPL does not publish its real price-change algorithm. This uses the well-known community
@@ -27,14 +29,21 @@ export async function GET(request: NextRequest) {
       .filter((n) => !Number.isNaN(n))
   );
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
+
   try {
     const res = await fetch(`${FPL_BASE_URL}/bootstrap-static/`, {
-      headers: { 'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)' },
+      headers: {
+        'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
       next: { revalidate: 300 },
     });
 
     if (!res.ok) {
-      return NextResponse.json({ error: `FPL bootstrap request failed (${res.status})` }, { status: 502 });
+      return NextResponse.json({ asOfEvent: 1, risers: [], fallers: [], error: `FPL bootstrap request failed (${res.status})` }, { status: 200 });
     }
 
     const bootstrap = await res.json();
@@ -86,6 +95,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(payload, { status: 200 });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to compute price alerts' }, { status: 500 });
+    return NextResponse.json({ asOfEvent: 1, risers: [], fallers: [], error: error.message || 'Failed to compute price alerts' }, { status: 200 });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

@@ -201,31 +201,41 @@ export default function FplDashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-black">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
+    <main className="min-h-screen bg-[#18001f] text-slate-100 selection:bg-[#00ff87] selection:text-black relative">
+      {/* Ambient stadium lighting */}
+      <div className="fixed top-0 left-1/4 w-[600px] h-[300px] bg-[#38003c]/60 rounded-full blur-[140px] pointer-events-none -z-10" />
+      <div className="fixed bottom-0 right-1/4 w-[500px] h-[300px] bg-[#00ff87]/5 rounded-full blur-[140px] pointer-events-none -z-10" />
+
+      {/* Broadcast Top Navigation Bar */}
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#240026]/90 backdrop-blur-xl shadow-lg">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-cyan-500 to-emerald-400 text-lg font-black text-slate-950 shadow-md">
-              ⚽
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-[#00ff87] to-[#04f5ff] text-xl font-black text-[#18001f] shadow-[0_0_15px_rgba(0,255,135,0.4)]">
+              🦁
             </span>
             <div>
-              <h1 className="text-base font-extrabold tracking-tight text-white sm:text-lg">
-                FPL Rival Spy <span className="text-xs font-semibold text-cyan-400">v1.0</span>
-              </h1>
-              <p className="text-[10px] text-slate-400 hidden sm:block">
-                Localized mini-league intelligence & differential leverage
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-black tracking-wider text-white uppercase sm:text-lg">
+                  FPL Rival Spy
+                </h1>
+                <span className="text-[10px] font-mono font-black uppercase tracking-widest bg-[#00ff87]/20 border border-[#00ff87]/40 text-[#00ff87] px-2 py-0.5 rounded-full shadow-[0_0_8px_rgba(0,255,135,0.2)]">
+                  MATCHDAY LIVE
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400 font-medium hidden sm:block">
+                Premier League mini-league tactical differential intelligence
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {duelData && (
-              <div className="hidden md:flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-800 px-3 py-1 text-xs">
-                <span className="text-slate-400">Logged in as:</span>
-                <span className="font-bold text-cyan-400">{duelData.user.teamName}</span>
+              <div className="hidden md:flex items-center gap-2 rounded-xl bg-[#17001c]/90 border border-white/10 px-3 py-1.5 text-xs shadow-md">
+                <span className="text-zinc-400 font-medium">Logged in:</span>
+                <span className="font-bold text-[#00ff87]">{duelData.user.teamName}</span>
                 <button
                   onClick={handleClearSavedSession}
-                  className="ml-1 text-[10px] text-slate-500 hover:text-rose-400 underline transition-colors"
+                  className="ml-1 text-[10px] text-zinc-500 hover:text-[#e90052] underline transition-colors"
                   title="Forget saved team and reset"
                 >
                   Switch
@@ -245,12 +255,12 @@ export default function FplDashboardPage() {
                 value={leagueIdInput}
                 onChange={(e) => setLeagueIdInput(e.target.value)}
                 placeholder="Mini-League ID"
-                className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
+                className="w-28 sm:w-36 rounded-xl border border-white/15 bg-[#17001c]/90 px-3 py-1.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-[#00ff87] focus:ring-1 focus:ring-[#00ff87] transition-all font-mono"
               />
               <button
                 type="submit"
                 disabled={isLoadingLeague}
-                className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+                className="rounded-xl bg-[#00ff87] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider text-[#18001f] hover:bg-[#00e67a] active:scale-95 disabled:opacity-50 transition-all shadow-[0_0_12px_rgba(0,255,135,0.3)]"
               >
                 {isLoadingLeague ? 'Syncing...' : 'Sync'}
               </button>
@@ -261,21 +271,21 @@ export default function FplDashboardPage() {
 
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 space-y-8">
         {errorMessage && (
-          <div className="rounded-xl border border-rose-800/80 bg-rose-950/40 p-4 text-xs font-semibold text-rose-300">
-            ⚠ {errorMessage}
+          <div className="rounded-xl border border-[#e90052]/60 bg-[#e90052]/10 p-4 text-xs font-semibold text-[#ff6699] flex items-center gap-2 shadow-[0_0_15px_rgba(233,0,82,0.2)]">
+            <span className="text-base">⚠</span> {errorMessage}
           </div>
         )}
 
         {leagueData && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-xl">
+          <section className="pl-glass rounded-2xl p-5 border border-white/10 shadow-2xl relative overflow-hidden">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Active Mini-League
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#00ff87]">
+                  Active Classic Mini-League
                 </span>
-                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                  🏆 {leagueData.leagueName}{' '}
-                  <span className="font-mono text-xs text-slate-500">
+                <h2 className="text-base sm:text-lg font-black text-white flex items-center gap-2 mt-0.5 uppercase tracking-tight">
+                  <span className="text-lg">🏆</span> {leagueData.leagueName}{' '}
+                  <span className="font-mono text-xs text-zinc-400 font-normal">
                     (ID: {leagueData.leagueId})
                   </span>
                 </h2>
@@ -283,13 +293,14 @@ export default function FplDashboardPage() {
 
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex flex-col">
-                  <label className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-1">
+                  <label className="text-[10px] font-black text-[#00ff87] uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#00ff87]" />
                     Your Team (Auto-Saved)
                   </label>
                   <select
                     value={selectedUserId ?? ''}
                     onChange={(e) => handleUserSelect(Number(e.target.value))}
-                    className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-400"
+                    className="rounded-xl border border-[#00ff87]/30 bg-[#17001c] px-3 py-1.5 text-xs font-bold text-white outline-none focus:border-[#00ff87] shadow-inner"
                   >
                     {leagueData.standings.map((c) => (
                       <option key={`user-${c.entry}`} value={c.entry}>
@@ -299,16 +310,17 @@ export default function FplDashboardPage() {
                   </select>
                 </div>
 
-                <span className="text-xs font-bold text-slate-600 mt-4 hidden sm:block">VS</span>
+                <span className="text-xs font-black text-zinc-500 mt-4 hidden sm:block">VS</span>
 
                 <div className="flex flex-col">
-                  <label className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider mb-1">
+                  <label className="text-[10px] font-black text-[#e90052] uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#e90052]" />
                     Target Rival (Auto-Saved)
                   </label>
                   <select
                     value={selectedRivalId ?? ''}
                     onChange={(e) => handleRivalSelect(Number(e.target.value))}
-                    className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-rose-400"
+                    className="rounded-xl border border-[#e90052]/30 bg-[#17001c] px-3 py-1.5 text-xs font-bold text-white outline-none focus:border-[#e90052] shadow-inner"
                   >
                     {leagueData.standings.map((c) => (
                       <option key={`rival-${c.entry}`} value={c.entry}>
@@ -324,8 +336,8 @@ export default function FplDashboardPage() {
 
         {isLoadingDuel && (
           <div className="flex flex-col items-center justify-center py-20 space-y-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-            <p className="text-xs font-semibold text-slate-400">
+            <div className="h-9 w-9 animate-spin rounded-full border-3 border-[#00ff87] border-t-transparent shadow-[0_0_15px_rgba(0,255,135,0.4)]" />
+            <p className="text-xs font-bold text-zinc-300 font-mono tracking-wide uppercase">
               Restoring saved duel session & matchday stats...
             </p>
           </div>

@@ -1,5 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 
+export const dynamic = 'force-dynamic';
+
 interface ManagerPick {
   element: number;
   multiplier: number;
@@ -14,39 +16,76 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
     }
 
-    const leagueRes = await fetch(
-      `https://fantasy.premierleague.com/api/leagues-classic/${leagueId}/standings/`
-    );
-    const leagueData = await leagueRes.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    let leagueData: any = null;
+    try {
+      const leagueRes = await fetch(
+        `https://fantasy.premierleague.com/api/leagues-classic/${leagueId}/standings/`,
+        {
+          headers: {
+            'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+            'Accept': 'application/json',
+          },
+          signal: controller.signal,
+          next: { revalidate: 120 },
+        }
+      );
+      if (leagueRes.ok) {
+        leagueData = await leagueRes.json();
+      }
+    } catch {
+      // Fallback if league request fails or times out
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
     const standings = leagueData?.standings?.results || [];
 
     if (!standings.length) {
-      return NextResponse.json({ elements: [] });
+      return NextResponse.json({ gameweek, totalManagers: 0, leagueEo: [] });
     }
 
-    const totalManagers = standings.length;
+    // Limit sample size to top 15 managers to prevent Vercel 504 timeouts and FPL 429 rate limiting
+    const sampleManagers = standings.slice(0, 15);
+    const totalManagers = sampleManagers.length;
     const eoCounts: Record<number, { count: number; effectivePointsMultiplier: number }> = {};
 
     await Promise.all(
-      standings.map(async (manager: { entry: number }) => {
+      sampleManagers.map(async (manager: { entry: number }) => {
+        const pickController = new AbortController();
+        const pickTimeout = setTimeout(() => pickController.abort(), 4000);
         try {
           const picksRes = await fetch(
-            `https://fantasy.premierleague.com/api/entry/${manager.entry}/event/${gameweek}/picks/`
+            `https://fantasy.premierleague.com/api/entry/${manager.entry}/event/${gameweek}/picks/`,
+            {
+              headers: {
+                'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+                'Accept': 'application/json',
+              },
+              signal: pickController.signal,
+              next: { revalidate: 120 },
+            }
           );
-          const picksData = await picksRes.json();
-          const picks: ManagerPick[] = picksData.picks || [];
+          if (picksRes.ok) {
+            const picksData = await picksRes.json();
+            const picks: ManagerPick[] = picksData.picks || [];
 
-          picks.forEach((pick) => {
-            if (!eoCounts[pick.element]) {
-              eoCounts[pick.element] = { count: 0, effectivePointsMultiplier: 0 };
-            }
-            if (pick.multiplier > 0) {
-              eoCounts[pick.element].count += 1;
-              eoCounts[pick.element].effectivePointsMultiplier += pick.multiplier;
-            }
-          });
+            picks.forEach((pick) => {
+              if (!eoCounts[pick.element]) {
+                eoCounts[pick.element] = { count: 0, effectivePointsMultiplier: 0 };
+              }
+              if (pick.multiplier > 0) {
+                eoCounts[pick.element].count += 1;
+                eoCounts[pick.element].effectivePointsMultiplier += pick.multiplier;
+              }
+            });
+          }
         } catch {
-          // Skip on failed manager fetch
+          // Skip on failed or timed out manager fetch
+        } finally {
+          clearTimeout(pickTimeout);
         }
       })
     );
@@ -67,6 +106,6 @@ export async function POST(req: Request) {
       leagueEo: eoResults.sort((a, b) => b.effectiveOwnership - a.effectiveOwnership),
     });
   } catch {
-    return NextResponse.json({ error: "Failed to calculate League EO" }, { status: 500 });
+    return NextResponse.json({ gameweek: 1, totalManagers: 0, leagueEo: [] });
   }
 }

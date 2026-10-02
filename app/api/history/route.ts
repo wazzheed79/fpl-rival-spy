@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { HeadToHeadHistoryResponse, HeadToHeadPoint } from '@/types/fpl';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
-async function fetchHistory(entryId: string) {
-  const res = await fetch(`${FPL_BASE_URL}/entry/${entryId}/history/`, {
-    headers: { 'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)' },
-    next: { revalidate: 300 },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch history for entry ${entryId} (HTTP ${res.status})`);
-  return res.json() as Promise<{ current: Array<{ event: number; points: number; total_points: number }> }>;
+async function fetchHistory(entryId: string, timeoutMs = 7000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(`${FPL_BASE_URL}/entry/${entryId}/history/`, {
+      headers: {
+        'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch history for entry ${entryId} (HTTP ${res.status})`);
+    return (await res.json()) as { current: Array<{ event: number; points: number; total_points: number }> };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // Powers the historical head-to-head trend chart: GW-by-GW points for both managers, aligned
@@ -44,6 +57,6 @@ export async function GET(request: NextRequest) {
     const payload: HeadToHeadHistoryResponse = { points };
     return NextResponse.json(payload);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to build head-to-head history' }, { status: 500 });
+    return NextResponse.json({ points: [], error: error.message || 'Failed to build head-to-head history' }, { status: 200 });
   }
 }

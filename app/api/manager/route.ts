@@ -1,21 +1,32 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { TacticalCategory, EnrichedPlayer, ManagerSummary, DuelResponse, SubStatus } from '@/types/fpl';
 
+export const dynamic = 'force-dynamic';
+
 const FPL_BASE_URL = 'https://fantasy.premierleague.com/api';
 
-async function fetchFpl<T>(endpoint: string, revalidateSeconds: number = 60): Promise<T> {
-  const res = await fetch(`${FPL_BASE_URL}${endpoint}`, {
-    headers: {
-      'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
-    },
-    next: { revalidate: revalidateSeconds },
-  });
+async function fetchFpl<T>(endpoint: string, revalidateSeconds: number = 60, timeoutMs = 8000): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    throw new Error(`FPL API error [${endpoint}]: HTTP ${res.status} ${res.statusText}`);
+  try {
+    const res = await fetch(`${FPL_BASE_URL}${endpoint}`, {
+      headers: {
+        'User-Agent': 'FPL-Rival-Spy/1.0 (+https://fpl-rival-spy.local)',
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+      next: { revalidate: revalidateSeconds },
+    });
+
+    if (!res.ok) {
+      throw new Error(`FPL API error [${endpoint}]: HTTP ${res.status} ${res.statusText}`);
+    }
+
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return res.json() as Promise<T>;
 }
 
 // Check if an outfield formation satisfies FPL legal limits: min 3 DEF, 2 MID, 1 FWD
@@ -42,8 +53,8 @@ export async function GET(request: NextRequest) {
   try {
     const bootstrap = await fetchFpl<{
       events: Array<{ id: number; is_current: boolean; is_next: boolean }>;
-      elements: Array<{ id: number; web_name: string; element_type: number; team: number; photo: string }>;
-      teams: Array<{ id: number; code: number; short_name: string }>;
+      elements: Array<{ id: number; web_name: string; element_type: number; team: number; photo: string; form?: string; selected_by_percent?: string }>;
+      teams: Array<{ id: number; code: number; short_name: string; strength_overall_home?: number; strength_overall_away?: number }>;
     }>('/bootstrap-static/', 300);
 
     const currentEvent = bootstrap.events.find((e) => e.is_current) || bootstrap.events.find((e) => e.is_next);
@@ -55,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     const playerStaticMap = new Map<
       number,
-      { webName: string; elementType: number; teamShort: string; teamCode: number; photoCode: string }
+      { webName: string; elementType: number; teamShort: string; teamCode: number; photoCode: string; form: number; ownership: number }
     >(
       bootstrap.elements.map((p) => {
         const team = teamMetaMap.get(p.team) || { shortName: 'UNK', code: 0 };
@@ -67,6 +78,8 @@ export async function GET(request: NextRequest) {
             teamShort: team.shortName,
             teamCode: team.code,
             photoCode: p.photo.replace(/\.[^/.]+$/, ''),
+            form: parseFloat(p.form || '0.0') || 0,
+            ownership: parseFloat(p.selected_by_percent || '0.0') || 0,
           },
         ];
       })
@@ -178,6 +191,8 @@ export async function GET(request: NextRequest) {
           teamShort: 'UNK',
           teamCode: 0,
           photoCode: '',
+          form: 0,
+          ownership: 0,
         };
         const live = liveStatsMap.get(pick.element) || {
           points: 0,
@@ -215,6 +230,9 @@ export async function GET(request: NextRequest) {
           effectivePoints: (live.points + bonusDelta) * pick.multiplier,
           subStatus: isStarter ? 'ACTIVE' : 'BENCHED',
           hasFinishedMatch: playerFinishedMap.get(pick.element) ?? false,
+          form: staticMeta.form,
+          ownership: staticMeta.ownership,
+          fdr: 3,
           stats: live.stats,
         };
       });
