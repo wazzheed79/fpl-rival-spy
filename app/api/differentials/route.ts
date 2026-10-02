@@ -84,13 +84,13 @@ export async function GET(request: NextRequest) {
       return Number((sum / upcoming.length).toFixed(2));
     };
 
-    // Broad pool: filter out completely inactive players, slice top 200 by form/minutes,
+    // Broad pool: filter out completely inactive players, slice top 350 by form/minutes,
     // but always force-include any requested squad IDs so caller-side lookups stay real.
     const ranked = players
-      .filter((p: any) => p.minutes >= 90 || parseFloat(p.form) > 1.0 || forceIds.has(p.id))
+      .filter((p: any) => p.minutes >= 45 || parseFloat(p.form) > 0.5 || forceIds.has(p.id))
       .sort((a: any, b: any) => parseFloat(b.form) - parseFloat(a.form));
 
-    const topSlice = ranked.slice(0, 200);
+    const topSlice = ranked.slice(0, 350);
     const topIds = new Set(topSlice.map((p: any) => p.id));
     const forced = ranked.filter((p: any) => forceIds.has(p.id) && !topIds.has(p.id));
     const finalPlayers = [...topSlice, ...forced];
