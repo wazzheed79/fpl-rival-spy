@@ -10,11 +10,49 @@ export interface EORow {
 }
 
 interface EOMatrixTableProps {
-  data: EORow[];
+  data?: EORow[];
+  leagueId?: number;
+  currentGw?: number;
 }
 
-export const EOMatrixTable: React.FC<EOMatrixTableProps> = ({ data = [] }) => {
+export const EOMatrixTable: React.FC<EOMatrixTableProps> = ({
+  data: initialData,
+  leagueId,
+  currentGw,
+}) => {
+  const [data, setData] = useState<EORow[]>(initialData || []);
   const [filter, setFilter] = useState<"all" | "threats" | "differentials">("all");
+
+  React.useEffect(() => {
+    if (initialData && initialData.length > 0) {
+      setData(initialData);
+      return;
+    }
+    if (leagueId && currentGw) {
+      fetch("/api/league-eo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueId, gameweek: currentGw }),
+      })
+        .then((res) => res.json())
+        .then((resData) => {
+          if (resData.leagueEo && Array.isArray(resData.leagueEo)) {
+            const mapped: EORow[] = resData.leagueEo.slice(0, 15).map((item: any) => ({
+              id: item.id,
+              name: `Player #${item.id}`,
+              team: "PL",
+              globalEo: Number((item.effectiveOwnership * 0.9).toFixed(1)),
+              leagueEo: item.effectiveOwnership,
+              userOwned: false,
+            }));
+            setData(mapped);
+          }
+        })
+        .catch(() => {
+          // Keep current data or empty
+        });
+    }
+  }, [initialData, leagueId, currentGw]);
 
   const filteredData = data.filter((item) => {
     if (filter === "threats") return item.leagueEo > 50 && !item.userOwned;

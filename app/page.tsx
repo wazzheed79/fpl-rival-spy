@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { PitchDuel } from '@/components/pitch/PitchDuel';
+import { DeficitFlipSimulator } from '@/components/intel/DeficitFlipSimulator';
 import { RivalReconCard } from '@/components/intel/RivalReconCard';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
 import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
@@ -334,6 +335,8 @@ export default function FplDashboardPage() {
         {!isLoadingDuel && duelData && leagueData && (
           <div className="space-y-8">
             <PitchDuel data={duelData} />
+
+            <DeficitFlipSimulator duel={duelData} />
 
             <RivalAutopsyCard data={duelData} />
 
