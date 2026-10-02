@@ -1,11 +1,12 @@
-﻿'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { PitchDuel } from '@/components/pitch/PitchDuel';
+import { PitchPlayer } from '@/components/pitch/PlayerCard';
+import { RivalAutopsyCard, AutopsyMetrics } from '@/components/intel/RivalAutopsyCard';
+import { EOMatrixTable, EORow } from '@/components/radar/EOMatrixTable';
 import { RivalReconCard } from '@/components/intel/RivalReconCard';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
-import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
-import { EOMatrixTable } from '@/components/radar/EOMatrixTable';
 import { LeapfrogEngine } from '@/components/transfers/LeapfrogEngine';
 import { RankSwingForecast } from '@/components/radar/RankSwingForecast';
 import { HeadToHeadTrendChart } from '@/components/radar/HeadToHeadTrendChart';
@@ -16,7 +17,8 @@ import { ChipWarPlanner } from '@/components/intel/ChipWarPlanner';
 import { RivalTransferPredictor } from '@/components/intel/RivalTransferPredictor';
 import { BanterCardStudio } from '@/components/intel/BanterCardStudio';
 import { ScenarioSimulator } from '@/components/radar/ScenarioSimulator';
-import { LeagueResponse, DuelResponse } from '@/types/fpl';
+import { MiniLeagueEOMatrix } from '@/components/radar/MiniLeagueEOMatrix';
+import { LeagueResponse, DuelResponse, ManagerSummary } from '@/types/fpl';
 import { SquadPlayer, CandidatePlayer } from '@/lib/leapfrog';
 import { computeRankSwingForecast, SwingPlayer } from '@/lib/rankSwing';
 import { ChipPlannerSquadPlayer } from '@/lib/chipPlanner';
@@ -25,11 +27,127 @@ const SEASON_TOTAL_GWS = 38;
 
 type TabKey = 'duel' | 'forecast' | 'simulator' | 'league' | 'market';
 
-const STORAGE_KEYS = {
-  LEAGUE_ID: 'fpl_spy_league_id',
-  USER_ID: 'fpl_spy_user_id',
-  RIVAL_ID: 'fpl_spy_rival_id',
+const sampleUserSquad = {
+  managerName: 'You (Tactician)',
+  teamName: 'Title Chasers FC',
+  totalPoints: 68,
+  players: [
+    { id: 1, webName: 'Raya', position: 'GKP' as const, teamShort: 'ARS', points: 6, status: 'finished' as const },
+    { id: 2, webName: 'Gabriel', position: 'DEF' as const, teamShort: 'ARS', points: 8, status: 'finished' as const },
+    { id: 3, webName: 'Alexander-Arnold', position: 'DEF' as const, teamShort: 'LIV', points: 7, status: 'finished' as const },
+    { id: 4, webName: 'Gvardiol', position: 'DEF' as const, teamShort: 'MCI', points: 2, status: 'finished' as const },
+    { id: 5, webName: 'Palmer', position: 'MID' as const, teamShort: 'CHE', points: 12, isDifferential: true, status: 'playing' as const, liveMinutes: 72 },
+    { id: 6, webName: 'Saka', position: 'MID' as const, teamShort: 'ARS', points: 9, status: 'finished' as const },
+    { id: 7, webName: 'Mbeumo', position: 'MID' as const, teamShort: 'BRE', points: 8, status: 'finished' as const },
+    { id: 8, webName: 'Rogers', position: 'MID' as const, teamShort: 'AVL', points: 3, status: 'finished' as const },
+    { id: 9, webName: 'Haaland', position: 'FWD' as const, teamShort: 'MCI', points: 13, isCaptain: true, status: 'playing' as const, liveMinutes: 85 },
+    { id: 10, webName: 'Watkins', position: 'FWD' as const, teamShort: 'AVL', points: 5, status: 'finished' as const },
+    { id: 11, webName: 'Wood', position: 'FWD' as const, teamShort: 'NFO', points: 2, status: 'finished' as const }
+  ]
 };
+
+const sampleRivalSquad = {
+  managerName: 'Rival Leader',
+  teamName: 'Lucky Punts XI',
+  totalPoints: 54,
+  players: [
+    { id: 101, webName: 'Pickford', position: 'GKP' as const, teamShort: 'EVE', points: 3, status: 'finished' as const },
+    { id: 102, webName: 'Saliba', position: 'DEF' as const, teamShort: 'ARS', points: 6, status: 'finished' as const },
+    { id: 103, webName: 'Robinson', position: 'DEF' as const, teamShort: 'FUL', points: 1, status: 'finished' as const },
+    { id: 104, webName: 'Pedro Porro', position: 'DEF' as const, teamShort: 'TOT', points: 4, status: 'finished' as const },
+    { id: 105, webName: 'Salah', position: 'MID' as const, teamShort: 'LIV', points: 15, isCaptain: true, status: 'finished' as const },
+    { id: 106, webName: 'Son', position: 'MID' as const, teamShort: 'TOT', points: 2, isDifferential: true, status: 'finished' as const },
+    { id: 107, webName: 'Luis Díaz', position: 'MID' as const, teamShort: 'LIV', points: 3, status: 'finished' as const },
+    { id: 108, webName: 'Smith Rowe', position: 'MID' as const, teamShort: 'FUL', points: 2, status: 'finished' as const },
+    { id: 109, webName: 'Haaland', position: 'FWD' as const, teamShort: 'MCI', points: 13, isViceCaptain: true, status: 'playing' as const, liveMinutes: 85 },
+    { id: 110, webName: 'Solanke', position: 'FWD' as const, teamShort: 'TOT', points: 2, status: 'finished' as const },
+    { id: 111, webName: 'Isak', position: 'FWD' as const, teamShort: 'NEW', points: 3, status: 'finished' as const }
+  ]
+};
+
+const sampleEoData: EORow[] = [
+  { id: 1, name: 'Haaland', team: 'MCI', leagueEo: 160.0, globalEo: 142.5, userOwned: true },
+  { id: 2, name: 'Salah', team: 'LIV', leagueEo: 88.5, globalEo: 65.2, userOwned: false },
+  { id: 3, name: 'Palmer', team: 'CHE', leagueEo: 25.0, globalEo: 52.0, userOwned: true },
+  { id: 4, name: 'Saka', team: 'ARS', leagueEo: 75.0, globalEo: 68.0, userOwned: true },
+  { id: 5, name: 'Son', team: 'TOT', leagueEo: 50.0, globalEo: 22.0, userOwned: false }
+];
+
+const sampleAutopsy: AutopsyMetrics = {
+  rivalName: 'Lucky Punts XI',
+  gameweek: 7,
+  pointsOnBench: 14,
+  benchedTopScorer: 'Aina (9 pts)',
+  captainPointsLost: 6,
+  transferCostTax: 4,
+  transferredOutScored: 8,
+  transferredInScored: 2
+};
+
+function toTeamSquad(summary: ManagerSummary, isUser: boolean) {
+  const posMap: Record<number, 'GKP' | 'DEF' | 'MID' | 'FWD'> = {
+    1: 'GKP',
+    2: 'DEF',
+    3: 'MID',
+    4: 'FWD',
+  };
+
+  const startingPicks = summary.picks.filter((p) => p.isStarter);
+
+  const players: PitchPlayer[] = startingPicks.map((p) => {
+    let status: 'playing' | 'benched' | 'finished' | 'upcoming' = 'upcoming';
+    if (p.hasFinishedMatch) {
+      status = 'finished';
+    } else if (p.stats.minutes > 0) {
+      status = 'playing';
+    }
+
+    return {
+      id: p.id,
+      webName: p.webName,
+      position: posMap[p.elementType] || 'MID',
+      teamShort: p.teamShort,
+      points: p.effectivePoints,
+      isCaptain: p.isCaptain,
+      isViceCaptain: p.isViceCaptain,
+      isDifferential: p.category === (isUser ? 'WEAPON' : 'DANGER'),
+      status,
+      liveMinutes: p.stats.minutes,
+      bonusPoints: p.provisionalBonus,
+    };
+  });
+
+  return {
+    managerName: summary.managerName,
+    teamName: summary.teamName,
+    totalPoints: summary.totalPoints,
+    players,
+  };
+}
+
+function toAutopsyMetrics(duel: DuelResponse): AutopsyMetrics {
+  const bench = duel.rival.picks.filter((p) => !p.isStarter);
+  const pointsOnBench = bench.reduce((sum, p) => sum + p.rawLivePoints, 0);
+  const topBenched = bench.slice().sort((a, b) => b.rawLivePoints - a.rawLivePoints)[0];
+  const benchedTopScorer = topBenched ? `${topBenched.webName} (${topBenched.rawLivePoints} pts)` : 'None';
+
+  const starters = duel.rival.picks.filter((p) => p.isStarter);
+  const captainPick = starters.find((p) => p.isCaptain);
+  const bestStarter = starters.slice().sort((a, b) => b.rawLivePoints - a.rawLivePoints)[0];
+  const captainPointsLost =
+    bestStarter && captainPick ? Math.max(0, bestStarter.rawLivePoints - captainPick.rawLivePoints) : 0;
+
+  return {
+    rivalName: duel.rival.managerName,
+    gameweek: duel.gameweek,
+    pointsOnBench,
+    benchedTopScorer,
+    captainPointsLost,
+    transferCostTax: duel.rival.eventTransfersCost,
+    transferredOutScored: 0,
+    transferredInScored: 0,
+  };
+}
 
 export default function FplDashboardPage() {
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
@@ -40,12 +158,12 @@ export default function FplDashboardPage() {
   const [isLoadingLeague, setIsLoadingLeague] = useState<boolean>(false);
   const [isLoadingDuel, setIsLoadingDuel] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isClientLoaded, setIsClientLoaded] = useState<boolean>(false);
   const [linkCopied, setLinkCopied] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('duel');
+  const [rawPlayerPool, setRawPlayerPool] = useState<CandidatePlayer[]>([]);
 
-  // 1. Initial Load: Read URL params or localStorage on client mount
+  // Load initial settings from URL params or localStorage
   useEffect(() => {
-    setIsClientLoaded(true);
     if (typeof window === 'undefined') return;
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -53,29 +171,26 @@ export default function FplDashboardPage() {
     const paramUser = urlParams.get('user');
     const paramRival = urlParams.get('rival');
 
-    const savedLeagueId = paramLeague || localStorage.getItem(STORAGE_KEYS.LEAGUE_ID) || '314';
-    const savedUserId = paramUser ? Number(paramUser) : Number(localStorage.getItem(STORAGE_KEYS.USER_ID)) || null;
-    const savedRivalId = paramRival ? Number(paramRival) : Number(localStorage.getItem(STORAGE_KEYS.RIVAL_ID)) || null;
+    const savedLeague = paramLeague || localStorage.getItem('fpl_spy_league') || '314';
+    const savedUser = paramUser ? Number(paramUser) : Number(localStorage.getItem('fpl_spy_user')) || null;
+    const savedRival = paramRival ? Number(paramRival) : Number(localStorage.getItem('fpl_spy_rival')) || null;
 
-    setLeagueIdInput(savedLeagueId);
-    if (savedUserId) setSelectedUserId(savedUserId);
-    if (savedRivalId) setSelectedRivalId(savedRivalId);
-
-    handleFetchLeague(savedLeagueId, savedUserId, savedRivalId);
+    setLeagueIdInput(savedLeague);
+    handleFetchLeague(savedLeague, savedUser, savedRival);
   }, []);
 
-  // 2. Sync state to URL and localStorage whenever IDs change
+  // Sync state to URL and localStorage whenever IDs change
   useEffect(() => {
-    if (typeof window === 'undefined' || !isClientLoaded) return;
+    if (typeof window === 'undefined') return;
 
     if (leagueData?.leagueId) {
-      localStorage.setItem(STORAGE_KEYS.LEAGUE_ID, leagueData.leagueId.toString());
+      localStorage.setItem('fpl_spy_league', leagueData.leagueId.toString());
     }
     if (selectedUserId) {
-      localStorage.setItem(STORAGE_KEYS.USER_ID, selectedUserId.toString());
+      localStorage.setItem('fpl_spy_user', selectedUserId.toString());
     }
     if (selectedRivalId) {
-      localStorage.setItem(STORAGE_KEYS.RIVAL_ID, selectedRivalId.toString());
+      localStorage.setItem('fpl_spy_rival', selectedRivalId.toString());
     }
 
     if (leagueData?.leagueId && selectedUserId && selectedRivalId) {
@@ -85,7 +200,7 @@ export default function FplDashboardPage() {
       url.searchParams.set('rival', selectedRivalId.toString());
       window.history.replaceState({}, '', url.toString());
     }
-  }, [leagueData?.leagueId, selectedUserId, selectedRivalId, isClientLoaded]);
+  }, [leagueData?.leagueId, selectedUserId, selectedRivalId]);
 
   const handleCopyShareLink = async () => {
     if (typeof window === 'undefined') return;
@@ -98,11 +213,10 @@ export default function FplDashboardPage() {
     }
   };
 
-  // 3. Fetch Classic Mini-League Standings with saved target restoration
   const handleFetchLeague = async (
     idToFetch: string,
-    restoredUserId?: number | null,
-    restoredRivalId?: number | null
+    initialUserId: number | null = null,
+    initialRivalId: number | null = null
   ) => {
     if (!idToFetch.trim()) return;
     setIsLoadingLeague(true);
@@ -117,30 +231,19 @@ export default function FplDashboardPage() {
 
       const data: LeagueResponse = await res.json();
       setLeagueData(data);
-      localStorage.setItem(STORAGE_KEYS.LEAGUE_ID, idToFetch.trim());
 
-      // Auto-detect or restore managers
-      const hasSavedUser = restoredUserId && data.standings.some((c) => c.entry === restoredUserId);
-      const hasSavedRival = restoredRivalId && data.standings.some((c) => c.entry === restoredRivalId);
+      const userExists = data.standings.some((c) => c.entry === initialUserId);
+      const rivalExists = data.standings.some((c) => c.entry === initialRivalId);
 
-      let targetUser = hasSavedUser ? restoredUserId : null;
-      let targetRival = hasSavedRival ? restoredRivalId : null;
-
-      if (!targetUser) {
-        // Fallback: 2nd place as user, 1st place as rival
-        targetUser = data.standings.length >= 2 ? data.standings[1].entry : data.standings[0]?.entry;
-      }
-      if (!targetRival) {
-        targetRival = data.standings[0]?.entry;
-      }
-
-      if (targetUser) {
-        setSelectedUserId(targetUser);
-        localStorage.setItem(STORAGE_KEYS.USER_ID, targetUser.toString());
-      }
-      if (targetRival) {
-        setSelectedRivalId(targetRival);
-        localStorage.setItem(STORAGE_KEYS.RIVAL_ID, targetRival.toString());
+      if (initialUserId && userExists && initialRivalId && rivalExists) {
+        setSelectedUserId(initialUserId);
+        setSelectedRivalId(initialRivalId);
+      } else if (data.standings.length >= 2) {
+        setSelectedUserId(data.standings[1].entry);
+        setSelectedRivalId(data.standings[0].entry);
+      } else if (data.standings.length === 1) {
+        setSelectedUserId(data.standings[0].entry);
+        setSelectedRivalId(data.standings[0].entry);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error syncing mini-league');
@@ -150,24 +253,6 @@ export default function FplDashboardPage() {
     }
   };
 
-  // 4. Selection change handlers that persist immediately
-  const handleUserSelect = (id: number) => {
-    setSelectedUserId(id);
-    localStorage.setItem(STORAGE_KEYS.USER_ID, id.toString());
-  };
-
-  const handleRivalSelect = (id: number) => {
-    setSelectedRivalId(id);
-    localStorage.setItem(STORAGE_KEYS.RIVAL_ID, id.toString());
-  };
-
-  const handleClearSavedSession = () => {
-    localStorage.removeItem(STORAGE_KEYS.LEAGUE_ID);
-    localStorage.removeItem(STORAGE_KEYS.USER_ID);
-    localStorage.removeItem(STORAGE_KEYS.RIVAL_ID);
-    setLeagueIdInput('314');
-    handleFetchLeague('314');
-  };
   useEffect(() => {
     if (!selectedUserId || !selectedRivalId) return;
 
@@ -197,10 +282,6 @@ export default function FplDashboardPage() {
     };
   }, [selectedUserId, selectedRivalId]);
 
-  // Real differential market pool, sourced from /api/differentials (live FPL form/FDR/xGI/ownership)
-  // rather than hardcoded placeholder players.
-  const [rawPlayerPool, setRawPlayerPool] = useState<CandidatePlayer[]>([]);
-
   const fetchMarketPool = async (currentDuel: DuelResponse) => {
     const rivalIds = currentDuel.rival.picks.map((p) => p.id);
     const squadIds = currentDuel.user.picks.map((p) => p.id);
@@ -214,18 +295,16 @@ export default function FplDashboardPage() {
       const data: CandidatePlayer[] = await res.json();
       setRawPlayerPool(data);
     } catch {
-      // Non-fatal: Leapfrog Engine degrades gracefully with an empty pool.
       setRawPlayerPool([]);
     }
   };
 
-  const leapfrogSquad: SquadPlayer[] = React.useMemo(() => {
+  const leapfrogSquad: SquadPlayer[] = useMemo(() => {
     if (!duelData) return [];
     const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
 
     return duelData.user.picks.map((p) => {
       const real = poolById.get(p.id);
-      // Fall back to conservative estimates if a squad player fell outside the live data pool.
       return {
         id: p.id,
         webName: p.webName,
@@ -244,20 +323,16 @@ export default function FplDashboardPage() {
     });
   }, [duelData, rawPlayerPool]);
 
-  const marketPool: CandidatePlayer[] = React.useMemo(() => {
+  const marketPool: CandidatePlayer[] = useMemo(() => {
     if (!duelData) return [];
     const userPlayerIds = new Set(duelData.user.picks.map((p) => p.id));
     return rawPlayerPool.filter((c) => !userPlayerIds.has(c.id));
   }, [duelData, rawPlayerPool]);
 
-  const rivalPickIds = React.useMemo(() => {
+  const rivalPickIds = useMemo(() => {
     return duelData ? duelData.rival.picks.map((p) => p.id) : [];
   }, [duelData]);
 
-  const [activeTab, setActiveTab] = useState<TabKey>('duel');
-
-  // Shared derived squads for the predictive rank-swing model and chip war planner - both need
-  // real form/FDR per player, sourced from the same differentials pool as the Leapfrog Engine.
   const toSwingSquad = (picks: DuelResponse['user']['picks']): SwingPlayer[] => {
     const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
     return picks.map((p) => {
@@ -273,23 +348,23 @@ export default function FplDashboardPage() {
     });
   };
 
-  const userSwingSquad: SwingPlayer[] = React.useMemo(
+  const userSwingSquad: SwingPlayer[] = useMemo(
     () => (duelData ? toSwingSquad(duelData.user.picks) : []),
     [duelData, rawPlayerPool]
   );
-  const rivalSwingSquad: SwingPlayer[] = React.useMemo(
+  const rivalSwingSquad: SwingPlayer[] = useMemo(
     () => (duelData ? toSwingSquad(duelData.rival.picks) : []),
     [duelData, rawPlayerPool]
   );
 
-  const rankSwingForecast = React.useMemo(() => {
+  const rankSwingForecast = useMemo(() => {
     if (!duelData || userSwingSquad.length === 0) return null;
     const currentMargin = duelData.user.totalPoints - duelData.rival.totalPoints;
     const remainingGws = Math.max(0, SEASON_TOTAL_GWS - duelData.gameweek);
     return computeRankSwingForecast(userSwingSquad, rivalSwingSquad, currentMargin, remainingGws);
   }, [duelData, userSwingSquad, rivalSwingSquad]);
 
-  const chipSquad: ChipPlannerSquadPlayer[] = React.useMemo(() => {
+  const chipSquad: ChipPlannerSquadPlayer[] = useMemo(() => {
     if (!duelData) return [];
     const poolById = new Map(rawPlayerPool.map((c) => [c.id, c]));
     return duelData.user.picks.map((p) => ({
@@ -302,6 +377,21 @@ export default function FplDashboardPage() {
     }));
   }, [duelData, rawPlayerPool]);
 
+  const effectiveUserSquad = useMemo(() => {
+    if (duelData) return toTeamSquad(duelData.user, true);
+    return sampleUserSquad;
+  }, [duelData]);
+
+  const effectiveRivalSquad = useMemo(() => {
+    if (duelData) return toTeamSquad(duelData.rival, false);
+    return sampleRivalSquad;
+  }, [duelData]);
+
+  const effectiveAutopsy = useMemo(() => {
+    if (duelData) return toAutopsyMetrics(duelData);
+    return sampleAutopsy;
+  }, [duelData]);
+
   const TABS: Array<{ key: TabKey; label: string; icon: string }> = [
     { key: 'duel', label: 'Duel', icon: '⚔️' },
     { key: 'forecast', label: 'Forecast', icon: '📡' },
@@ -310,260 +400,260 @@ export default function FplDashboardPage() {
     { key: 'market', label: 'Market & Spy', icon: '💹' },
   ];
 
-  if (!isClientLoaded) {
-    return null; // Prevents SSR hydration mismatch
-  }
-
-
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-black">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-cyan-500 to-emerald-400 text-lg font-black text-slate-950 shadow-md">
-              ⚽
-            </span>
-            <div>
-              <h1 className="text-base font-extrabold tracking-tight text-white sm:text-lg">
-                FPL Rival Spy <span className="text-xs font-semibold text-cyan-400">v1.0</span>
-              </h1>
-              <p className="text-[10px] text-slate-400 hidden sm:block">
-                Localized mini-league intelligence & differential leverage
-              </p>
-            </div>
+    <main className="min-h-screen bg-[#07090e] text-zinc-100 p-4 md:p-8 space-y-8">
+      {/* Header Bar */}
+      <header className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-white/10 gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_12px_#34d399]" />
+            <h1 className="text-2xl font-black tracking-tight text-white uppercase font-mono">
+              FPL Rival Spy <span className="text-emerald-400">Terminal</span>
+            </h1>
           </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            Real-time mini-league espionage, tactical duels, and leapfrog analytics.
+          </p>
+        </div>
 
-          <div className="flex items-center gap-3">
-            {duelData && (
-              <>
-                <div className="hidden md:flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-800 px-3 py-1 text-xs">
-                  <span className="text-slate-400">Logged in as:</span>
-                  <span className="font-bold text-cyan-400">{duelData.user.teamName}</span>
-                  <button
-                    onClick={handleClearSavedSession}
-                    className="ml-1 text-[10px] text-slate-500 hover:text-rose-400 underline transition-colors"
-                    title="Forget saved team and reset"
-                  >
-                    Switch
-                  </button>
-                </div>
+        {/* Inputs */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            placeholder="Mini-League ID"
+            value={leagueIdInput}
+            onChange={(e) => setLeagueIdInput(e.target.value)}
+            className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono w-32"
+          />
+          <button
+            onClick={() => handleFetchLeague(leagueIdInput)}
+            disabled={isLoadingLeague}
+            className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs transition-colors shadow-[0_0_15px_rgba(16,185,129,0.25)] disabled:opacity-50"
+          >
+            {isLoadingLeague ? 'Loading...' : 'Analyze'}
+          </button>
 
-                <button
-                  type="button"
-                  onClick={handleCopyShareLink}
-                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all shadow-sm ${
-                    linkCopied
-                      ? 'bg-emerald-500 text-slate-950 ring-1 ring-emerald-400'
-                      : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Copy shareable link to this duel"
-                >
-                  {linkCopied ? '✔ Copied Link!' : '🔗 Share Duel'}
-                </button>
-              </>
-            )}
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleFetchLeague(leagueIdInput);
-              }}
-              className="flex items-center gap-2"
+          {duelData && (
+            <button
+              type="button"
+              onClick={handleCopyShareLink}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all shadow-sm ${
+                linkCopied
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-zinc-900 border border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-800'
+              }`}
+              title="Copy shareable link to this duel"
             >
-              <input
-                type="text"
-                value={leagueIdInput}
-                onChange={(e) => setLeagueIdInput(e.target.value)}
-                placeholder="Mini-League ID"
-                className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
-              />
-              <button
-                type="submit"
-                disabled={isLoadingLeague}
-                className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
-              >
-                {isLoadingLeague ? 'Syncing...' : 'Sync'}
-              </button>
-            </form>
-          </div>
+              {linkCopied ? '✓ Link Copied' : '🔗 Share Duel'}
+            </button>
+          )}
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 space-y-8">
-        {errorMessage && (
-          <div className="rounded-xl border border-rose-800/80 bg-rose-950/40 p-4 text-xs font-semibold text-rose-300">
-            ⚠ {errorMessage}
-          </div>
-        )}
+      {/* Mini-league Manager Selectors */}
+      {leagueData && (
+        <section className="rounded-xl border border-white/10 bg-zinc-950/60 p-4 backdrop-blur-md">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400">
+                Mini-League Active
+              </span>
+              <h2 className="text-base font-bold text-white">{leagueData.leagueName}</h2>
+            </div>
 
-        {leagueData && (
-          <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-xl">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Active Mini-League
-                </span>
-                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                  🏆 {leagueData.leagueName}{' '}
-                  <span className="font-mono text-xs text-slate-500">
-                    (ID: {leagueData.leagueId})
-                  </span>
-                </h2>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-zinc-400">Logged in as:</label>
+                <select
+                  value={selectedUserId || ''}
+                  onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                  className="rounded-lg border border-white/10 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                >
+                  {leagueData.standings.map((c) => (
+                    <option key={c.entry} value={c.entry}>
+                      {c.playerName} ({c.entryName}) - #{c.rank}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex flex-col">
-                  <label className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-1">
-                    Your Team (Auto-Saved)
-                  </label>
-                  <select
-                    value={selectedUserId ?? ''}
-                    onChange={(e) => handleUserSelect(Number(e.target.value))}
-                    className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-400"
-                  >
-                    {leagueData.standings.map((c) => (
-                      <option key={`user-${c.entry}`} value={c.entry}>
-                        #{c.rank} {c.playerName} ({c.entryName}) - {c.total} pts
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <span className="text-xs font-bold text-slate-600 mt-4 hidden sm:block">VS</span>
-
-                <div className="flex flex-col">
-                  <label className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider mb-1">
-                    Target Rival (Auto-Saved)
-                  </label>
-                  <select
-                    value={selectedRivalId ?? ''}
-                    onChange={(e) => handleRivalSelect(Number(e.target.value))}
-                    className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-rose-400"
-                  >
-                    {leagueData.standings.map((c) => (
-                      <option key={`rival-${c.entry}`} value={c.entry}>
-                        #{c.rank} {c.playerName} ({c.entryName}) - {c.total} pts
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-zinc-400">Target Rival:</label>
+                <select
+                  value={selectedRivalId || ''}
+                  onChange={(e) => setSelectedRivalId(Number(e.target.value))}
+                  className="rounded-lg border border-white/10 bg-zinc-900 px-3 py-1.5 text-xs text-white focus:border-rose-500 focus:outline-none"
+                >
+                  {leagueData.standings.map((c) => (
+                    <option key={c.entry} value={c.entry}>
+                      {c.playerName} ({c.entryName}) - #{c.rank}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          </section>
-        )}
-
-        {isLoadingDuel && (
-          <div className="flex flex-col items-center justify-center py-20 space-y-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
-            <p className="text-xs font-semibold text-slate-400">
-              Restoring saved duel session & matchday stats...
-            </p>
           </div>
-        )}
+        </section>
+      )}
 
-        {!isLoadingDuel && duelData && (
-          <div className="space-y-6">
-            <nav className="flex items-center gap-1 rounded-2xl border border-slate-800 bg-slate-900/60 p-1.5 shadow-xl overflow-x-auto">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-bold whitespace-nowrap transition-all ${
-                    activeTab === tab.key
-                      ? 'bg-gradient-to-tr from-cyan-500 to-emerald-400 text-slate-950 shadow-lg'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  <span>{tab.icon}</span> {tab.label}
-                </button>
-              ))}
-            </nav>
+      {errorMessage && (
+        <div className="rounded-xl border border-rose-500/30 bg-rose-950/40 p-4 text-xs text-rose-300">
+          {errorMessage}
+        </div>
+      )}
 
-            {activeTab === 'duel' && (
-              <div className="space-y-8">
-                <PitchDuel data={duelData} />
-                <BanterCardStudio data={duelData} />
-                <RivalAutopsyCard data={duelData} />
-                <RivalReconCard user={duelData.user} rival={duelData.rival} currentGw={duelData.gameweek} />
-                <HitTaxTracker
-                  userId={duelData.user.teamId}
-                  rivalId={duelData.rival.teamId}
-                  userName={duelData.user.teamName}
-                  rivalName={duelData.rival.teamName}
-                  currentGw={duelData.gameweek}
-                />
-                <LeapfrogEngine
-                  squad={leapfrogSquad}
-                  playerPool={marketPool}
-                  bank={duelData.user.bank}
-                  userTotalPoints={duelData.user.totalPoints}
-                  rivalTotalPoints={duelData.rival.totalPoints}
-                  currentGw={duelData.gameweek}
-                  rivalPicksIds={rivalPickIds}
-                />
-              </div>
-            )}
+      {isLoadingDuel && (
+        <div className="flex items-center justify-center p-8">
+          <span className="text-sm text-zinc-400 animate-pulse font-mono">
+            📡 Syncing tactical head-to-head match telemetry...
+          </span>
+        </div>
+      )}
 
-            {activeTab === 'forecast' && (
-              <div className="space-y-8">
-                {rankSwingForecast && (
-                  <RankSwingForecast
-                    forecast={rankSwingForecast}
-                    userName={duelData.user.teamName}
-                    rivalName={duelData.rival.teamName}
-                    remainingGws={Math.max(0, SEASON_TOTAL_GWS - duelData.gameweek)}
-                  />
-                )}
-                <LiveMomentumFeed
-                  userId={duelData.user.teamId}
-                  rivalId={duelData.rival.teamId}
-                  currentGw={duelData.gameweek}
-                />
-                <HeadToHeadTrendChart
-                  userId={duelData.user.teamId}
-                  rivalId={duelData.rival.teamId}
-                  userName={duelData.user.teamName}
-                  rivalName={duelData.rival.teamName}
-                />
-              </div>
-            )}
-
-            {activeTab === 'simulator' && (
-              <div className="space-y-8">
-                <ScenarioSimulator data={duelData} />
-              </div>
-            )}
-
-            {activeTab === 'league' && leagueData && (
-              <div className="space-y-8">
-                <EOMatrixTable
-                  leagueId={leagueData.leagueId}
-                  currentGw={duelData.gameweek}
-                />
-                <LeagueThreatBoard
-                  leagueId={leagueData.leagueId}
-                  highlightUserId={selectedUserId}
-                  highlightRivalId={selectedRivalId}
-                />
-              </div>
-            )}
-
-            {activeTab === 'market' && (
-              <div className="space-y-8">
-                <RivalTransferPredictor
-                  rival={duelData.rival}
-                  user={duelData.user}
-                  marketPool={marketPool}
-                  currentGw={duelData.gameweek}
-                />
-                <PriceAlertFeed rivalIds={rivalPickIds} />
-                <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />
-              </div>
-            )}
-
-          </div>
-        )}
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-white/10 pb-3 overflow-x-auto">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+              activeTab === tab.key
+                ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.25)]'
+                : 'bg-zinc-900/60 text-zinc-400 hover:text-white hover:bg-zinc-800'
+            }`}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
       </div>
+
+      {/* Tab Panels */}
+      {activeTab === 'duel' && (
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="xl:col-span-2">
+              <PitchDuel userSquad={effectiveUserSquad} rivalSquad={effectiveRivalSquad} />
+            </div>
+            <div className="space-y-6">
+              <RivalAutopsyCard metrics={effectiveAutopsy} />
+              {duelData && <BanterCardStudio data={duelData} />}
+            </div>
+          </div>
+
+          {duelData && (
+            <div className="space-y-6">
+              <RivalReconCard user={duelData.user} rival={duelData.rival} currentGw={duelData.gameweek} />
+              <HitTaxTracker
+                userId={duelData.user.teamId}
+                rivalId={duelData.rival.teamId}
+                userName={duelData.user.managerName}
+                rivalName={duelData.rival.managerName}
+                currentGw={duelData.gameweek}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'forecast' && (
+        <div className="space-y-8">
+          {rankSwingForecast && duelData ? (
+            <RankSwingForecast
+              forecast={rankSwingForecast}
+              userName={duelData.user.managerName}
+              rivalName={duelData.rival.managerName}
+              remainingGws={Math.max(0, SEASON_TOTAL_GWS - duelData.gameweek)}
+            />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-zinc-950/60 p-6 text-center text-xs text-zinc-400">
+              Load a mini-league match above to calculate the predictive rank swing trajectory.
+            </div>
+          )}
+
+          {duelData && (
+            <HeadToHeadTrendChart
+              userId={duelData.user.teamId}
+              rivalId={duelData.rival.teamId}
+              userName={duelData.user.managerName}
+              rivalName={duelData.rival.managerName}
+            />
+          )}
+
+          {duelData && (
+            <LiveMomentumFeed
+              userId={duelData.user.teamId}
+              rivalId={duelData.rival.teamId}
+              currentGw={duelData.gameweek}
+            />
+          )}
+        </div>
+      )}
+
+      {activeTab === 'simulator' && (
+        <div className="space-y-8">
+          {duelData ? (
+            <ScenarioSimulator data={duelData} />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-zinc-950/60 p-6 text-center text-xs text-zinc-400">
+              Load a mini-league match above to run interactive captain and differential simulations.
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'league' && (
+        <div className="space-y-8">
+          {leagueData && selectedUserId && selectedRivalId && (
+            <MiniLeagueEOMatrix
+              leagueId={leagueData.leagueId}
+              userId={selectedUserId}
+              rivalId={selectedRivalId}
+              userName={leagueData.standings.find((c) => c.entry === selectedUserId)?.playerName || 'You'}
+              rivalName={leagueData.standings.find((c) => c.entry === selectedRivalId)?.playerName || 'Rival'}
+            />
+          )}
+
+          <EOMatrixTable data={sampleEoData} />
+
+          {leagueData && (
+            <LeagueThreatBoard
+              leagueId={leagueData.leagueId}
+              highlightUserId={selectedUserId}
+              highlightRivalId={selectedRivalId}
+            />
+          )}
+        </div>
+      )}
+
+      {activeTab === 'market' && (
+        <div className="space-y-8">
+          {duelData && (
+            <RivalTransferPredictor
+              rival={duelData.rival}
+              user={duelData.user}
+              marketPool={marketPool}
+              currentGw={duelData.gameweek}
+            />
+          )}
+
+          {duelData && (
+            <LeapfrogEngine
+              squad={leapfrogSquad}
+              playerPool={marketPool}
+              bank={duelData.user.bank}
+              userTotalPoints={duelData.user.totalPoints}
+              rivalTotalPoints={duelData.rival.totalPoints}
+              currentGw={duelData.gameweek}
+              rivalPicksIds={rivalPickIds}
+            />
+          )}
+
+          {duelData && <PriceAlertFeed rivalIds={rivalPickIds} />}
+
+          {duelData && <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />}
+        </div>
+      )}
     </main>
   );
 }
