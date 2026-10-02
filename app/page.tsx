@@ -5,6 +5,7 @@ import { PitchDuel } from '@/components/pitch/PitchDuel';
 import { RivalReconCard } from '@/components/intel/RivalReconCard';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
 import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
+import { EOMatrixTable } from '@/components/radar/EOMatrixTable';
 import { LeapfrogEngine } from '@/components/transfers/LeapfrogEngine';
 import { RankSwingForecast } from '@/components/radar/RankSwingForecast';
 import { HeadToHeadTrendChart } from '@/components/radar/HeadToHeadTrendChart';
@@ -21,6 +22,12 @@ const SEASON_TOTAL_GWS = 38;
 
 type TabKey = 'duel' | 'forecast' | 'league' | 'market';
 
+const STORAGE_KEYS = {
+  LEAGUE_ID: 'fpl_spy_league_id',
+  USER_ID: 'fpl_spy_user_id',
+  RIVAL_ID: 'fpl_spy_rival_id',
+};
+
 export default function FplDashboardPage() {
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
   const [leagueData, setLeagueData] = useState<LeagueResponse | null>(null);
@@ -30,8 +37,28 @@ export default function FplDashboardPage() {
   const [isLoadingLeague, setIsLoadingLeague] = useState<boolean>(false);
   const [isLoadingDuel, setIsLoadingDuel] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isClientLoaded, setIsClientLoaded] = useState<boolean>(false);
 
-  const handleFetchLeague = async (idToFetch: string) => {
+  // 1. Initial Load: Read localStorage on client mount
+  useEffect(() => {
+    setIsClientLoaded(true);
+    const savedLeagueId = localStorage.getItem(STORAGE_KEYS.LEAGUE_ID) || '314';
+    const savedUserId = localStorage.getItem(STORAGE_KEYS.USER_ID);
+    const savedRivalId = localStorage.getItem(STORAGE_KEYS.RIVAL_ID);
+
+    setLeagueIdInput(savedLeagueId);
+    if (savedUserId) setSelectedUserId(Number(savedUserId));
+    if (savedRivalId) setSelectedRivalId(Number(savedRivalId));
+
+    handleFetchLeague(savedLeagueId, Number(savedUserId), Number(savedRivalId));
+  }, []);
+
+  // 2. Fetch Classic Mini-League Standings with saved target restoration
+  const handleFetchLeague = async (
+    idToFetch: string,
+    restoredUserId?: number,
+    restoredRivalId?: number
+  ) => {
     if (!idToFetch.trim()) return;
     setIsLoadingLeague(true);
     setErrorMessage(null);
@@ -45,13 +72,30 @@ export default function FplDashboardPage() {
 
       const data: LeagueResponse = await res.json();
       setLeagueData(data);
+      localStorage.setItem(STORAGE_KEYS.LEAGUE_ID, idToFetch.trim());
 
-      if (data.standings.length >= 2) {
-        setSelectedUserId(data.standings[1].entry);
-        setSelectedRivalId(data.standings[0].entry);
-      } else if (data.standings.length === 1) {
-        setSelectedUserId(data.standings[0].entry);
-        setSelectedRivalId(data.standings[0].entry);
+      // Auto-detect or restore managers
+      const hasSavedUser = restoredUserId && data.standings.some((c) => c.entry === restoredUserId);
+      const hasSavedRival = restoredRivalId && data.standings.some((c) => c.entry === restoredRivalId);
+
+      let targetUser = hasSavedUser ? restoredUserId : null;
+      let targetRival = hasSavedRival ? restoredRivalId : null;
+
+      if (!targetUser) {
+        // Fallback: 2nd place as user, 1st place as rival
+        targetUser = data.standings.length >= 2 ? data.standings[1].entry : data.standings[0]?.entry;
+      }
+      if (!targetRival) {
+        targetRival = data.standings[0]?.entry;
+      }
+
+      if (targetUser) {
+        setSelectedUserId(targetUser);
+        localStorage.setItem(STORAGE_KEYS.USER_ID, targetUser.toString());
+      }
+      if (targetRival) {
+        setSelectedRivalId(targetRival);
+        localStorage.setItem(STORAGE_KEYS.RIVAL_ID, targetRival.toString());
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error syncing mini-league');
@@ -61,10 +105,26 @@ export default function FplDashboardPage() {
     }
   };
 
-  useEffect(() => {
-    handleFetchLeague(leagueIdInput);
-  }, []);
+  // 3. Selection change handlers that persist immediately
+  const handleUserSelect = (id: number) => {
+    setSelectedUserId(id);
+    localStorage.setItem(STORAGE_KEYS.USER_ID, id.toString());
+  };
 
+  const handleRivalSelect = (id: number) => {
+    setSelectedRivalId(id);
+    localStorage.setItem(STORAGE_KEYS.RIVAL_ID, id.toString());
+  };
+
+  const handleClearSavedSession = () => {
+    localStorage.removeItem(STORAGE_KEYS.LEAGUE_ID);
+    localStorage.removeItem(STORAGE_KEYS.USER_ID);
+    localStorage.removeItem(STORAGE_KEYS.RIVAL_ID);
+    setLeagueIdInput('314');
+    handleFetchLeague('314');
+  };
+
+  // 4. Fetch duel when selected pair updates
   useEffect(() => {
     if (!selectedUserId || !selectedRivalId) return;
 
@@ -206,6 +266,11 @@ export default function FplDashboardPage() {
     { key: 'market', label: 'Market', icon: '💹' },
   ];
 
+  if (!isClientLoaded) {
+    return null; // Prevents SSR hydration mismatch
+  }
+
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-black">
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
@@ -224,28 +289,44 @@ export default function FplDashboardPage() {
             </div>
           </div>
 
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleFetchLeague(leagueIdInput);
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={leagueIdInput}
-              onChange={(e) => setLeagueIdInput(e.target.value)}
-              placeholder="Mini-League ID"
-              className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
-            />
-            <button
-              type="submit"
-              disabled={isLoadingLeague}
-              className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+          <div className="flex items-center gap-3">
+            {duelData && (
+              <div className="hidden md:flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-800 px-3 py-1 text-xs">
+                <span className="text-slate-400">Logged in as:</span>
+                <span className="font-bold text-cyan-400">{duelData.user.teamName}</span>
+                <button
+                  onClick={handleClearSavedSession}
+                  className="ml-1 text-[10px] text-slate-500 hover:text-rose-400 underline transition-colors"
+                  title="Forget saved team and reset"
+                >
+                  Switch
+                </button>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleFetchLeague(leagueIdInput);
+              }}
+              className="flex items-center gap-2"
             >
-              {isLoadingLeague ? 'Syncing...' : 'Sync'}
-            </button>
-          </form>
+              <input
+                type="text"
+                value={leagueIdInput}
+                onChange={(e) => setLeagueIdInput(e.target.value)}
+                placeholder="Mini-League ID"
+                className="w-28 sm:w-36 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-cyan-500 transition-colors"
+              />
+              <button
+                type="submit"
+                disabled={isLoadingLeague}
+                className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition-colors"
+              >
+                {isLoadingLeague ? 'Syncing...' : 'Sync'}
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
@@ -274,11 +355,11 @@ export default function FplDashboardPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex flex-col">
                   <label className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-1">
-                    Your Team
+                    Your Team (Auto-Saved)
                   </label>
                   <select
                     value={selectedUserId ?? ''}
-                    onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                    onChange={(e) => handleUserSelect(Number(e.target.value))}
                     className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-400"
                   >
                     {leagueData.standings.map((c) => (
@@ -293,11 +374,11 @@ export default function FplDashboardPage() {
 
                 <div className="flex flex-col">
                   <label className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider mb-1">
-                    Target Rival
+                    Target Rival (Auto-Saved)
                   </label>
                   <select
                     value={selectedRivalId ?? ''}
-                    onChange={(e) => setSelectedRivalId(Number(e.target.value))}
+                    onChange={(e) => handleRivalSelect(Number(e.target.value))}
                     className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-rose-400"
                   >
                     {leagueData.standings.map((c) => (
@@ -316,7 +397,7 @@ export default function FplDashboardPage() {
           <div className="flex flex-col items-center justify-center py-20 space-y-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
             <p className="text-xs font-semibold text-slate-400">
-              Intercepting gameweek picks and matchday events...
+              Restoring saved duel session & matchday stats...
             </p>
           </div>
         )}
@@ -389,10 +470,10 @@ export default function FplDashboardPage() {
 
             {activeTab === 'league' && leagueData && (
               <div className="space-y-8">
-                <LeagueThreatBoard
+                
+                <EOMatrixTable
                   leagueId={leagueData.leagueId}
-                  highlightUserId={selectedUserId}
-                  highlightRivalId={selectedRivalId}
+                  currentGw={duelData.gameweek}
                 />
               </div>
             )}
@@ -403,6 +484,7 @@ export default function FplDashboardPage() {
                 <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />
               </div>
             )}
+
           </div>
         )}
       </div>
