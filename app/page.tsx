@@ -5,6 +5,7 @@ import { PitchDuel } from '@/components/pitch/PitchDuel';
 import { RivalReconCard } from '@/components/intel/RivalReconCard';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
 import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
+import { EOMatrixTable } from '@/components/radar/EOMatrixTable';
 import { LeapfrogEngine } from '@/components/transfers/LeapfrogEngine';
 import { RankSwingForecast } from '@/components/radar/RankSwingForecast';
 import { HeadToHeadTrendChart } from '@/components/radar/HeadToHeadTrendChart';
@@ -15,7 +16,6 @@ import { ChipWarPlanner } from '@/components/intel/ChipWarPlanner';
 import { RivalTransferPredictor } from '@/components/intel/RivalTransferPredictor';
 import { BanterCardStudio } from '@/components/intel/BanterCardStudio';
 import { ScenarioSimulator } from '@/components/radar/ScenarioSimulator';
-import { MiniLeagueEOMatrix } from '@/components/radar/MiniLeagueEOMatrix';
 import { LeagueResponse, DuelResponse } from '@/types/fpl';
 import { SquadPlayer, CandidatePlayer } from '@/lib/leapfrog';
 import { computeRankSwingForecast, SwingPlayer } from '@/lib/rankSwing';
@@ -24,6 +24,12 @@ import { ChipPlannerSquadPlayer } from '@/lib/chipPlanner';
 const SEASON_TOTAL_GWS = 38;
 
 type TabKey = 'duel' | 'forecast' | 'simulator' | 'league' | 'market';
+
+const STORAGE_KEYS = {
+  LEAGUE_ID: 'fpl_spy_league_id',
+  USER_ID: 'fpl_spy_user_id',
+  RIVAL_ID: 'fpl_spy_rival_id',
+};
 
 export default function FplDashboardPage() {
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
@@ -34,10 +40,12 @@ export default function FplDashboardPage() {
   const [isLoadingLeague, setIsLoadingLeague] = useState<boolean>(false);
   const [isLoadingDuel, setIsLoadingDuel] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isClientLoaded, setIsClientLoaded] = useState<boolean>(false);
   const [linkCopied, setLinkCopied] = useState<boolean>(false);
 
-  // Load initial settings from URL params or localStorage
+  // 1. Initial Load: Read URL params or localStorage on client mount
   useEffect(() => {
+    setIsClientLoaded(true);
     if (typeof window === 'undefined') return;
 
     const urlParams = new URLSearchParams(window.location.search);
@@ -45,26 +53,29 @@ export default function FplDashboardPage() {
     const paramUser = urlParams.get('user');
     const paramRival = urlParams.get('rival');
 
-    const savedLeague = paramLeague || localStorage.getItem('fpl_spy_league') || '314';
-    const savedUser = paramUser ? Number(paramUser) : Number(localStorage.getItem('fpl_spy_user')) || null;
-    const savedRival = paramRival ? Number(paramRival) : Number(localStorage.getItem('fpl_spy_rival')) || null;
+    const savedLeagueId = paramLeague || localStorage.getItem(STORAGE_KEYS.LEAGUE_ID) || '314';
+    const savedUserId = paramUser ? Number(paramUser) : Number(localStorage.getItem(STORAGE_KEYS.USER_ID)) || null;
+    const savedRivalId = paramRival ? Number(paramRival) : Number(localStorage.getItem(STORAGE_KEYS.RIVAL_ID)) || null;
 
-    setLeagueIdInput(savedLeague);
-    handleFetchLeague(savedLeague, savedUser, savedRival);
+    setLeagueIdInput(savedLeagueId);
+    if (savedUserId) setSelectedUserId(savedUserId);
+    if (savedRivalId) setSelectedRivalId(savedRivalId);
+
+    handleFetchLeague(savedLeagueId, savedUserId, savedRivalId);
   }, []);
 
-  // Sync state to URL and localStorage whenever IDs change
+  // 2. Sync state to URL and localStorage whenever IDs change
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !isClientLoaded) return;
 
     if (leagueData?.leagueId) {
-      localStorage.setItem('fpl_spy_league', leagueData.leagueId.toString());
+      localStorage.setItem(STORAGE_KEYS.LEAGUE_ID, leagueData.leagueId.toString());
     }
     if (selectedUserId) {
-      localStorage.setItem('fpl_spy_user', selectedUserId.toString());
+      localStorage.setItem(STORAGE_KEYS.USER_ID, selectedUserId.toString());
     }
     if (selectedRivalId) {
-      localStorage.setItem('fpl_spy_rival', selectedRivalId.toString());
+      localStorage.setItem(STORAGE_KEYS.RIVAL_ID, selectedRivalId.toString());
     }
 
     if (leagueData?.leagueId && selectedUserId && selectedRivalId) {
@@ -74,7 +85,7 @@ export default function FplDashboardPage() {
       url.searchParams.set('rival', selectedRivalId.toString());
       window.history.replaceState({}, '', url.toString());
     }
-  }, [leagueData?.leagueId, selectedUserId, selectedRivalId]);
+  }, [leagueData?.leagueId, selectedUserId, selectedRivalId, isClientLoaded]);
 
   const handleCopyShareLink = async () => {
     if (typeof window === 'undefined') return;
@@ -87,10 +98,11 @@ export default function FplDashboardPage() {
     }
   };
 
+  // 3. Fetch Classic Mini-League Standings with saved target restoration
   const handleFetchLeague = async (
     idToFetch: string,
-    initialUserId: number | null = null,
-    initialRivalId: number | null = null
+    restoredUserId?: number | null,
+    restoredRivalId?: number | null
   ) => {
     if (!idToFetch.trim()) return;
     setIsLoadingLeague(true);
@@ -105,19 +117,30 @@ export default function FplDashboardPage() {
 
       const data: LeagueResponse = await res.json();
       setLeagueData(data);
+      localStorage.setItem(STORAGE_KEYS.LEAGUE_ID, idToFetch.trim());
 
-      const userExists = data.standings.some((c) => c.entry === initialUserId);
-      const rivalExists = data.standings.some((c) => c.entry === initialRivalId);
+      // Auto-detect or restore managers
+      const hasSavedUser = restoredUserId && data.standings.some((c) => c.entry === restoredUserId);
+      const hasSavedRival = restoredRivalId && data.standings.some((c) => c.entry === restoredRivalId);
 
-      if (initialUserId && userExists && initialRivalId && rivalExists) {
-        setSelectedUserId(initialUserId);
-        setSelectedRivalId(initialRivalId);
-      } else if (data.standings.length >= 2) {
-        setSelectedUserId(data.standings[1].entry);
-        setSelectedRivalId(data.standings[0].entry);
-      } else if (data.standings.length === 1) {
-        setSelectedUserId(data.standings[0].entry);
-        setSelectedRivalId(data.standings[0].entry);
+      let targetUser = hasSavedUser ? restoredUserId : null;
+      let targetRival = hasSavedRival ? restoredRivalId : null;
+
+      if (!targetUser) {
+        // Fallback: 2nd place as user, 1st place as rival
+        targetUser = data.standings.length >= 2 ? data.standings[1].entry : data.standings[0]?.entry;
+      }
+      if (!targetRival) {
+        targetRival = data.standings[0]?.entry;
+      }
+
+      if (targetUser) {
+        setSelectedUserId(targetUser);
+        localStorage.setItem(STORAGE_KEYS.USER_ID, targetUser.toString());
+      }
+      if (targetRival) {
+        setSelectedRivalId(targetRival);
+        localStorage.setItem(STORAGE_KEYS.RIVAL_ID, targetRival.toString());
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error syncing mini-league');
@@ -127,6 +150,24 @@ export default function FplDashboardPage() {
     }
   };
 
+  // 4. Selection change handlers that persist immediately
+  const handleUserSelect = (id: number) => {
+    setSelectedUserId(id);
+    localStorage.setItem(STORAGE_KEYS.USER_ID, id.toString());
+  };
+
+  const handleRivalSelect = (id: number) => {
+    setSelectedRivalId(id);
+    localStorage.setItem(STORAGE_KEYS.RIVAL_ID, id.toString());
+  };
+
+  const handleClearSavedSession = () => {
+    localStorage.removeItem(STORAGE_KEYS.LEAGUE_ID);
+    localStorage.removeItem(STORAGE_KEYS.USER_ID);
+    localStorage.removeItem(STORAGE_KEYS.RIVAL_ID);
+    setLeagueIdInput('314');
+    handleFetchLeague('314');
+  };
   useEffect(() => {
     if (!selectedUserId || !selectedRivalId) return;
 
@@ -269,6 +310,11 @@ export default function FplDashboardPage() {
     { key: 'market', label: 'Market & Spy', icon: '💹' },
   ];
 
+  if (!isClientLoaded) {
+    return null; // Prevents SSR hydration mismatch
+  }
+
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500 selection:text-black">
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
@@ -289,18 +335,32 @@ export default function FplDashboardPage() {
 
           <div className="flex items-center gap-3">
             {duelData && (
-              <button
-                type="button"
-                onClick={handleCopyShareLink}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all shadow-sm ${
-                  linkCopied
-                    ? 'bg-emerald-500 text-slate-950 ring-1 ring-emerald-400'
-                    : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
-                }`}
-                title="Copy shareable link to this duel"
-              >
-                {linkCopied ? '✔ Copied Link!' : '🔗 Share Duel'}
-              </button>
+              <>
+                <div className="hidden md:flex items-center gap-2 rounded-lg bg-slate-900 border border-slate-800 px-3 py-1 text-xs">
+                  <span className="text-slate-400">Logged in as:</span>
+                  <span className="font-bold text-cyan-400">{duelData.user.teamName}</span>
+                  <button
+                    onClick={handleClearSavedSession}
+                    className="ml-1 text-[10px] text-slate-500 hover:text-rose-400 underline transition-colors"
+                    title="Forget saved team and reset"
+                  >
+                    Switch
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyShareLink}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all shadow-sm ${
+                    linkCopied
+                      ? 'bg-emerald-500 text-slate-950 ring-1 ring-emerald-400'
+                      : 'bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Copy shareable link to this duel"
+                >
+                  {linkCopied ? '✔ Copied Link!' : '🔗 Share Duel'}
+                </button>
+              </>
             )}
 
             <form
@@ -354,11 +414,11 @@ export default function FplDashboardPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex flex-col">
                   <label className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-1">
-                    Your Team
+                    Your Team (Auto-Saved)
                   </label>
                   <select
                     value={selectedUserId ?? ''}
-                    onChange={(e) => setSelectedUserId(Number(e.target.value))}
+                    onChange={(e) => handleUserSelect(Number(e.target.value))}
                     className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-cyan-400"
                   >
                     {leagueData.standings.map((c) => (
@@ -373,11 +433,11 @@ export default function FplDashboardPage() {
 
                 <div className="flex flex-col">
                   <label className="text-[10px] font-semibold text-rose-400 uppercase tracking-wider mb-1">
-                    Target Rival
+                    Target Rival (Auto-Saved)
                   </label>
                   <select
                     value={selectedRivalId ?? ''}
-                    onChange={(e) => setSelectedRivalId(Number(e.target.value))}
+                    onChange={(e) => handleRivalSelect(Number(e.target.value))}
                     className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white outline-none focus:border-rose-400"
                   >
                     {leagueData.standings.map((c) => (
@@ -396,7 +456,7 @@ export default function FplDashboardPage() {
           <div className="flex flex-col items-center justify-center py-20 space-y-3">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
             <p className="text-xs font-semibold text-slate-400">
-              Intercepting gameweek picks and matchday events...
+              Restoring saved duel session & matchday stats...
             </p>
           </div>
         )}
@@ -476,12 +536,9 @@ export default function FplDashboardPage() {
 
             {activeTab === 'league' && leagueData && (
               <div className="space-y-8">
-                <MiniLeagueEOMatrix
+                <EOMatrixTable
                   leagueId={leagueData.leagueId}
-                  userId={duelData.user.teamId}
-                  rivalId={duelData.rival.teamId}
-                  userName={duelData.user.teamName}
-                  rivalName={duelData.rival.teamName}
+                  currentGw={duelData.gameweek}
                 />
                 <LeagueThreatBoard
                   leagueId={leagueData.leagueId}
@@ -503,6 +560,7 @@ export default function FplDashboardPage() {
                 <ChipWarPlanner squad={chipSquad} chipsUsed={duelData.user.chipsUsed} />
               </div>
             )}
+
           </div>
         )}
       </div>
