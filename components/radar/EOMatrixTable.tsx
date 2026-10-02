@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 
 export interface EORow {
   id: number;
@@ -10,7 +10,9 @@ export interface EORow {
 }
 
 interface EOMatrixTableProps {
-  data: EORow[];
+  data?: EORow[];
+  leagueId?: number;
+  currentGw?: number;
 }
 
 export const EOMatrixTable: React.FC<EOMatrixTableProps> = ({ data = [] }) => {
