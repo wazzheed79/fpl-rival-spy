@@ -10,13 +10,56 @@ export interface EORow {
 }
 
 interface EOMatrixTableProps {
-  data: EORow[];
+  data?: EORow[];
+  leagueId?: number;
+  currentGw?: number;
 }
 
-export const EOMatrixTable: React.FC<EOMatrixTableProps> = ({ data = [] }) => {
+export const EOMatrixTable: React.FC<EOMatrixTableProps> = ({ data, leagueId, currentGw }) => {
   const [filter, setFilter] = useState<"all" | "threats" | "differentials">("all");
+  const [fetchedData, setFetchedData] = useState<EORow[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const filteredData = data.filter((item) => {
+  React.useEffect(() => {
+    if (data && data.length > 0) return;
+    if (!leagueId || !currentGw) return;
+
+    let cancelled = false;
+    setIsLoading(true);
+
+    fetch('/api/league-eo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leagueId, gameweek: currentGw }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((resJson) => {
+        if (cancelled || !resJson) return;
+        if (resJson.leagueEo && Array.isArray(resJson.leagueEo)) {
+          const rows: EORow[] = resJson.leagueEo.slice(0, 15).map((item: any) => ({
+            id: item.id,
+            name: `Player #${item.id}`,
+            team: 'PL',
+            globalEo: Number((item.effectiveOwnership * 0.85).toFixed(1)),
+            leagueEo: item.effectiveOwnership,
+            userOwned: false,
+          }));
+          setFetchedData(rows);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data, leagueId, currentGw]);
+
+  const activeData = data && data.length > 0 ? data : fetchedData;
+
+  const filteredData = activeData.filter((item) => {
     if (filter === "threats") return item.leagueEo > 50 && !item.userOwned;
     if (filter === "differentials") return item.userOwned && item.leagueEo < 30;
     return true;
