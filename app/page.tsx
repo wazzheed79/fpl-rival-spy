@@ -1,15 +1,26 @@
 ﻿'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { PitchDuel } from '@/components/pitch/PitchDuel';
 import { DeficitFlipSimulator } from '@/components/intel/DeficitFlipSimulator';
+import { BanterCardStudio } from '@/components/pitch/BanterCardStudio';
 import { RivalReconCard } from '@/components/intel/RivalReconCard';
+import { RivalTransferPredictor } from '@/components/intel/RivalTransferPredictor';
+import { DifferentialAlerts } from '@/components/intel/DifferentialAlerts';
+import { LiveMomentumFeed } from '@/components/intel/LiveMomentumFeed';
+import { ChipWarPlanner } from '@/components/intel/ChipWarPlanner';
 import { HitTaxTracker } from '@/components/transfers/HitTaxTracker';
 import { RivalAutopsyCard } from '@/components/intel/RivalAutopsyCard';
 import { EOMatrixTable } from '@/components/radar/EOMatrixTable';
+import { RankSwingForecast } from '@/components/radar/RankSwingForecast';
+import { LeagueThreatBoard } from '@/components/league/LeagueThreatBoard';
+import { HeadToHeadTrendChart } from '@/components/radar/HeadToHeadTrendChart';
 import { LeapfrogEngine } from '@/components/transfers/LeapfrogEngine';
+import { PriceAlertFeed } from '@/components/transfers/PriceAlertFeed';
 import { LeagueResponse, DuelResponse } from '@/types/fpl';
 import { SquadPlayer, CandidatePlayer } from '@/lib/leapfrog';
+import { computeRankSwingForecast, SwingPlayer } from '@/lib/rankSwing';
+import { ChipPlannerSquadPlayer } from '@/lib/chipPlanner';
 
 const STORAGE_KEYS = {
   LEAGUE_ID: 'fpl_spy_league_id',
@@ -18,6 +29,7 @@ const STORAGE_KEYS = {
 };
 
 export default function FplDashboardPage() {
+  const [activeTab, setActiveTab] = useState<'duel' | 'forecast' | 'league' | 'market'>('duel');
   const [leagueIdInput, setLeagueIdInput] = useState<string>('314');
   const [leagueData, setLeagueData] = useState<LeagueResponse | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -197,6 +209,44 @@ export default function FplDashboardPage() {
     return duelData ? duelData.rival.picks.map((p) => p.id) : [];
   }, [duelData]);
 
+  const rankSwingData = useMemo(() => {
+    if (!duelData) return null;
+    const userSwingSquad: SwingPlayer[] = duelData.user.picks.map((p) => ({
+      id: p.id,
+      webName: p.webName,
+      isStarter: p.isStarter,
+      multiplier: p.multiplier,
+      form: p.effectivePoints > 0 ? Number((p.effectivePoints * 0.8).toFixed(1)) : 2.5,
+      fdrNext3Avg: p.category === 'WEAPON' ? 2.3 : 3.5,
+    }));
+    const rivalSwingSquad: SwingPlayer[] = duelData.rival.picks.map((p) => ({
+      id: p.id,
+      webName: p.webName,
+      isStarter: p.isStarter,
+      multiplier: p.multiplier,
+      form: p.effectivePoints > 0 ? Number((p.effectivePoints * 0.8).toFixed(1)) : 2.5,
+      fdrNext3Avg: p.category === 'DANGER' ? 2.3 : 3.5,
+    }));
+    const userNet = duelData.user.liveNetPoints ?? duelData.user.liveStartingPoints ?? duelData.user.totalPoints;
+    const rivalNet = duelData.rival.liveNetPoints ?? duelData.rival.liveStartingPoints ?? duelData.rival.totalPoints;
+    const currentMargin = userNet - rivalNet;
+    const remainingGws = Math.max(1, 38 - duelData.gameweek);
+
+    return computeRankSwingForecast(userSwingSquad, rivalSwingSquad, currentMargin, remainingGws);
+  }, [duelData]);
+
+  const chipPlannerSquad: ChipPlannerSquadPlayer[] = useMemo(() => {
+    if (!duelData) return [];
+    return duelData.user.picks.map((p) => ({
+      id: p.id,
+      webName: p.webName,
+      teamShort: p.teamShort,
+      elementType: p.elementType,
+      form: p.effectivePoints > 0 ? Number((p.effectivePoints * 0.8).toFixed(1)) : 2.5,
+      isStarter: p.isStarter,
+    }));
+  }, [duelData]);
+
   if (!isClientLoaded) {
     return null; // Prevents SSR hydration mismatch
   }
@@ -345,41 +395,166 @@ export default function FplDashboardPage() {
         )}
 
         {!isLoadingDuel && duelData && leagueData && (
-          <div className="space-y-8">
-            <PitchDuel data={duelData} />
+          <div className="space-y-6">
+            {/* Dashboard Navigation Tabs */}
+            <nav className="flex items-center justify-start border-b border-white/10 pb-3 overflow-x-auto gap-2">
+              <button
+                onClick={() => setActiveTab('duel')}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                  activeTab === 'duel'
+                    ? 'bg-[#00ff87] text-[#18001f] shadow-lg shadow-[#00ff87]/20 border border-[#00ff87]'
+                    : 'bg-[#1f0024]/80 text-zinc-400 hover:text-white hover:bg-[#2b0033] border border-white/10'
+                }`}
+              >
+                <span>⚔️</span>
+                <span>Tactical Duel</span>
+                <span className="text-[10px] opacity-80 font-mono">GW{duelData.gameweek}</span>
+              </button>
 
-            <DeficitFlipSimulator duel={duelData} />
+              <button
+                onClick={() => setActiveTab('forecast')}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                  activeTab === 'forecast'
+                    ? 'bg-[#00ff87] text-[#18001f] shadow-lg shadow-[#00ff87]/20 border border-[#00ff87]'
+                    : 'bg-[#1f0024]/80 text-zinc-400 hover:text-white hover:bg-[#2b0033] border border-white/10'
+                }`}
+              >
+                <span>📈</span>
+                <span>Forecast & Momentum</span>
+                <span className="rounded bg-[#04f5ff]/20 border border-[#04f5ff]/40 text-[#04f5ff] px-1.5 py-0.5 text-[9px] uppercase font-mono">
+                  Live
+                </span>
+              </button>
 
-            <RivalAutopsyCard data={duelData} />
+              <button
+                onClick={() => setActiveTab('league')}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                  activeTab === 'league'
+                    ? 'bg-[#00ff87] text-[#18001f] shadow-lg shadow-[#00ff87]/20 border border-[#00ff87]'
+                    : 'bg-[#1f0024]/80 text-zinc-400 hover:text-white hover:bg-[#2b0033] border border-white/10'
+                }`}
+              >
+                <span>🏆</span>
+                <span>League Threat & EO</span>
+                <span className="text-[10px] opacity-80 font-mono">Matrix</span>
+              </button>
 
-            <RivalReconCard
-              user={duelData.user}
-              rival={duelData.rival}
-              currentGw={duelData.gameweek}
-            />
+              <button
+                onClick={() => setActiveTab('market')}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all shrink-0 ${
+                  activeTab === 'market'
+                    ? 'bg-[#00ff87] text-[#18001f] shadow-lg shadow-[#00ff87]/20 border border-[#00ff87]'
+                    : 'bg-[#1f0024]/80 text-zinc-400 hover:text-white hover:bg-[#2b0033] border border-white/10'
+                }`}
+              >
+                <span>🔄</span>
+                <span>Transfer Market & Intel</span>
+                <span className="rounded bg-[#e90052]/20 border border-[#e90052]/40 text-[#ff6699] px-1.5 py-0.5 text-[9px] uppercase font-mono">
+                  Alerts
+                </span>
+              </button>
+            </nav>
 
-            <EOMatrixTable
-              leagueId={leagueData.leagueId}
-              currentGw={duelData.gameweek}
-            />
+            {/* TAB CONTENT: DUEL */}
+            {activeTab === 'duel' && (
+              <div className="space-y-8 animate-fadeIn">
+                <PitchDuel data={duelData} />
 
-            <HitTaxTracker
-              userId={duelData.user.teamId}
-              rivalId={duelData.rival.teamId}
-              userName={duelData.user.teamName}
-              rivalName={duelData.rival.teamName}
-              currentGw={duelData.gameweek}
-            />
+                <DeficitFlipSimulator duel={duelData} />
 
-            <LeapfrogEngine
-              squad={leapfrogSquad}
-              playerPool={marketPool}
-              bank={duelData.user.bank}
-              userTotalPoints={duelData.user.totalPoints}
-              rivalTotalPoints={duelData.rival.totalPoints}
-              currentGw={duelData.gameweek}
-              rivalPicksIds={rivalPickIds}
-            />
+                <RivalAutopsyCard data={duelData} />
+
+                <BanterCardStudio duelData={duelData} />
+
+                <HitTaxTracker
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  userName={duelData.user.teamName}
+                  rivalName={duelData.rival.teamName}
+                  currentGw={duelData.gameweek}
+                />
+
+                <LeapfrogEngine
+                  squad={leapfrogSquad}
+                  playerPool={marketPool}
+                  bank={duelData.user.bank}
+                  userTotalPoints={duelData.user.totalPoints}
+                  rivalTotalPoints={duelData.rival.totalPoints}
+                  currentGw={duelData.gameweek}
+                  rivalPicksIds={rivalPickIds}
+                />
+              </div>
+            )}
+
+            {/* TAB CONTENT: FORECAST */}
+            {activeTab === 'forecast' && (
+              <div className="space-y-8 animate-fadeIn">
+                {rankSwingData && (
+                  <RankSwingForecast
+                    forecast={rankSwingData}
+                    userName={duelData.user.teamName}
+                    rivalName={duelData.rival.teamName}
+                    remainingGws={Math.max(1, 38 - duelData.gameweek)}
+                  />
+                )}
+
+                <LiveMomentumFeed
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  currentGw={duelData.gameweek}
+                />
+
+                <HeadToHeadTrendChart
+                  userId={duelData.user.teamId}
+                  rivalId={duelData.rival.teamId}
+                  userName={duelData.user.teamName}
+                  rivalName={duelData.rival.teamName}
+                />
+              </div>
+            )}
+
+            {/* TAB CONTENT: LEAGUE */}
+            {activeTab === 'league' && (
+              <div className="space-y-8 animate-fadeIn">
+                <LeagueThreatBoard
+                  leagueId={leagueData.leagueId}
+                  highlightUserId={duelData.user.teamId}
+                  highlightRivalId={duelData.rival.teamId}
+                />
+
+                <EOMatrixTable
+                  leagueId={leagueData.leagueId}
+                  currentGw={duelData.gameweek}
+                />
+              </div>
+            )}
+
+            {/* TAB CONTENT: MARKET */}
+            {activeTab === 'market' && (
+              <div className="space-y-8 animate-fadeIn">
+                <PriceAlertFeed rivalIds={rivalPickIds} />
+
+                <RivalTransferPredictor
+                  user={duelData.user}
+                  rival={duelData.rival}
+                  currentGw={duelData.gameweek}
+                  marketPool={marketPool}
+                />
+
+                <ChipWarPlanner
+                  squad={chipPlannerSquad}
+                  chipsUsed={duelData.user.chipsUsed}
+                />
+
+                <DifferentialAlerts duelData={duelData} />
+
+                <RivalReconCard
+                  user={duelData.user}
+                  rival={duelData.rival}
+                  currentGw={duelData.gameweek}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
